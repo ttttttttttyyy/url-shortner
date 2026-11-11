@@ -1,0 +1,25 @@
+# .gitignore (repo root)
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Build output (safety net — subprojects also ignore these)
+target/
+build/
+out/
+node_modules/
+dist/

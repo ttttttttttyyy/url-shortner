@@ -1,0 +1,305 @@
+# =============================================================================
+# Shortly - application configuration
+#
+# Profiles:
+#   dev  - local development (default)
+#   prod - production / VPS (activate with SPRING_PROFILES_ACTIVE=prod)
+#   test - automated tests (in-memory H2)
+#
+# Environment-specific values and secrets are supplied through environment
+# variables. Production intentionally has no defaults for credentials/secrets.
+# =============================================================================
+
+spring:
+  application:
+    name: shortly
+  profiles:
+    default: dev
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      "[hibernate.jdbc.time_zone]": UTC
+      "[hibernate.jdbc.batch_size]": 30
+      "[hibernate.order_inserts]": true
+      "[hibernate.order_updates]": true
+      "[hibernate.query.in_clause_parameter_padding]": true
+      "[hibernate.default_batch_fetch_size]": 100
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
+    out-of-order: false
+  web:
+    error:
+      include-message: never
+      include-stacktrace: never
+      include-exception: false
+
+server:
+  port: ${SERVER_PORT:10004}
+  shutdown: graceful
+  forward-headers-strategy: framework
+  max-http-request-header-size: 16KB
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml,image/svg+xml
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        name: SHORTLY_SESSION
+        http-only: true
+        same-site: lax
+        secure: true
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    max-connections: 8192
+    accept-count: 100
+    connection-timeout: 20s
+    max-swallow-size: 2MB
+
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+info:
+  app:
+    name: ${spring.application.name}
+    description: URL shortening platform
+    version: ${APP_VERSION:dev}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+
+# -----------------------------------------------------------------------------
+# Application / product settings
+# Thresholds marked "placeholder" are proposed defaults from the SoW and must
+# be confirmed by the project owner before public launch.
+# -----------------------------------------------------------------------------
+app:
+  base-url: ${APP_BASE_URL:http://localhost:10004}
+
+  short-code:
+    length: ${SHORT_CODE_LENGTH:7}
+    max-length: ${SHORT_CODE_MAX_LENGTH:32}
+    alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    max-generation-attempts: ${SHORT_CODE_MAX_ATTEMPTS:10}
+    reserved-aliases:
+      - api
+      - admin
+      - actuator
+      - auth
+      - billing
+      - contact
+      - favicon.ico
+      - health
+      - login
+      - logout
+      - metrics
+      - privacy
+      - qr
+      - register
+      - report
+      - robots.txt
+      - sitemap.xml
+      - static
+      - terms
+      - verify
+
+  link:
+    default-expiration-days: ${LINK_DEFAULT_EXPIRATION_DAYS:0} # 0 = no default expiry
+    max-expiration-days: ${LINK_MAX_EXPIRATION_DAYS:3650}
+    guest-retention-days: ${GUEST_LINK_RETENTION_DAYS:30}
+    password:
+      min-length: 8
+      max-length: 128
+
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:shortly}
+      audience: ${JWT_AUDIENCE:shortly-web}
+      access-token-ttl: ${JWT_ACCESS_TTL:15m}
+      refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+      allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+      allowed-headers: Authorization,Content-Type,X-Requested-With,X-Request-Id
+      exposed-headers: Location,X-Request-Id
+      allow-credentials: true
+      max-age: 3600
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      window: ${RATE_LIMIT_WINDOW:1m}
+      guest-link-creation: ${RATE_LIMIT_GUEST_CREATE:5}
+      user-link-creation: ${RATE_LIMIT_USER_CREATE:30}
+      login-attempts: ${RATE_LIMIT_LOGIN:10}
+      password-verification: ${RATE_LIMIT_PASSWORD_VERIFY:10}
+
+  ads:
+    enabled: ${ADS_ENABLED:true}
+    interstitial:
+      enabled: ${ADS_INTERSTITIAL_ENABLED:true}
+      provider: ${ADS_PROVIDER:none}
+      script-url: ${ADS_SCRIPT_URL:}
+      continue-delay-seconds: ${ADS_CONTINUE_DELAY_SECONDS:0}
+      require-user-action: true
+
+  plans:
+    free: # placeholder limits pending project-owner decision
+      max-links: ${PLAN_FREE_MAX_LINKS:100}
+      custom-aliases: false
+      advanced-analytics: false
+      password-protection: false
+      ad-free-redirects: false
+    paid: # -1 = unlimited
+      max-links: ${PLAN_PAID_MAX_LINKS:-1}
+      custom-aliases: true
+      advanced-analytics: true
+      password-protection: true
+      ad-free-redirects: true
+
+  analytics:
+    unique-click-window: ${ANALYTICS_UNIQUE_CLICK_WINDOW:24h}
+    retention-days: ${ANALYTICS_RETENTION_DAYS:365}
+    geo-granularity: ${ANALYTICS_GEO_GRANULARITY:country}
+    anonymize-ip: true
+
+logging:
+  level:
+    root: INFO
+    "[com.url.shortly]": INFO
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{40} - %msg%n"
+
+# =============================================================================
+# Local development
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/shortly?ApplicationName=shortly&reWriteBatchedInserts=true}
+    username: ${DB_USERNAME:shortly}
+    password: ${DB_PASSWORD:shortly}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: shortly-pool
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      keepalive-time: 300000
+  jpa:
+    show-sql: false
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:dev-only-shortly-jwt-secret-change-me-0123456789abcdef}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:4200}
+  ads:
+    enabled: ${ADS_ENABLED:false}
+logging:
+  level:
+    "[com.url.shortly]": DEBUG
+
+# =============================================================================
+# Production / VPS
+# Required environment variables:
+#   DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, APP_BASE_URL, CORS_ALLOWED_ORIGINS
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: shortly-pool
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      keepalive-time: 300000
+  jpa:
+    show-sql: false
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true
+app:
+  base-url: ${APP_BASE_URL}
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  ads:
+    enabled: ${ADS_ENABLED:true}
+logging:
+  level:
+    root: INFO
+    "[com.url.shortly]": INFO
+  structured:
+    format:
+      console: ecs
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_UI_ENABLED:false}
+
+# =============================================================================
+# Automated tests are configured in src/test/resources/application-test.yml
+# =============================================================================
