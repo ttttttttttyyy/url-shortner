@@ -1,5 +1,6 @@
 package com.url.shortly.controller;
 
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,7 +9,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import com.url.shortly.Entities.Link;
+import com.url.shortly.service.LinkService;
 
 /**
  * SoW FR-03 / FR-12 / FR-13 / FR-14: public link resolution.
@@ -24,9 +29,16 @@ class LinkControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private LinkService linkService;
+
     @Test
     @DisplayName("GET /{shortCode} answers with 302 and a Location header")
     void redirectsToPlaceholderDestination() throws Exception {
+        Link link = new Link();
+        link.setUrl("https://example.com/");
+        given(linkService.getOriginalLink("abc1234")).willReturn(link);
+
         mockMvc.perform(get("/abc1234"))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", "https://example.com/"));

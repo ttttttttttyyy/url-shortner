@@ -1,26 +1,43 @@
 package com.url.shortly.controller;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.time.Instant;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import com.url.shortly.DTO.CallerContext;
+import com.url.shortly.DTO.CallerResolver;
+import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.Entities.Link;
+import com.url.shortly.service.LinkService;
+import com.url.shortly.service.ShortUrlBuilder;
+import com.url.shortly.service.exeptions.AliasNotAllowedException;
+import com.url.shortly.service.exeptions.InvalidUrlException;
+import com.url.shortly.service.exeptions.ShortCodeConflictException;
 
 /**
  * Routing contract for the link management API (SoW section 7.2).
  *
- * <p>Every handler is currently a placeholder returning 501, so these tests
- * pin paths, HTTP methods and error handling. When a handler is implemented,
- * replace its {@code isNotImplemented()} assertion with the real status
- * (201 for creation, 200 for reads, 204 for deletion, etc.).
+ * <p>Creation is implemented; the remaining handlers are placeholders
+ * returning 501, so these tests pin paths, HTTP methods and error handling.
+ * When a handler is implemented, replace its {@code isNotImplemented()}
+ * assertion with the real status (200 for reads, 204 for deletion, etc.).
  */
 @WebMvcTest(LinkApiController.class)
 class LinkApiControllerTest {
@@ -30,16 +47,55 @@ class LinkApiControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private LinkService linkService;
+
+    @MockitoBean
+    private CallerResolver callerResolver;
+
+    @MockitoBean
+    private ShortUrlBuilder shortUrlBuilder;
+
     @Test
-    @DisplayName("POST /api/v1/links accepts a JSON body")
-    void createLinkIsNotImplementedYet() throws Exception {
+    @DisplayName("POST /api/v1/links returns 201 with the short URL in Location and body")
+    void createLinkReturnsCreatedWithLocation() throws Exception {
+        Link link = new Link();
+        link.setId(42L);
+        link.setShortCode("aB3xY9");
+        link.setUrl("https://example.com/a/long/path");
+        link.setCustomAlias(false);
+        link.setCreatedAt(Instant.parse("2026-11-13T10:15:30Z"));
+
+        given(callerResolver.current()).willReturn(CallerContext.guest());
+        given(linkService.createLink(any(CreateLinkRequest.class), any(CallerContext.class)))
+                .willReturn(link);
+        given(shortUrlBuilder.build("aB3xY9")).willReturn("https://sho.rt/aB3xY9");
+
         mockMvc.perform(post(LINKS)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"url":"https://example.com/a/long/path","alias":"promo",
+                                {"url":"https://example.com/a/long/path","alias":null,
                                  "password":null,"expiresAt":null}
                                 """))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "https://sho.rt/aB3xY9"))
+                .andExpect(jsonPath("$.id").value(42))
+                .andExpect(jsonPath("$.shortCode").value("aB3xY9"))
+                .andExpect(jsonPath("$.shortUrl").value("https://sho.rt/aB3xY9"))
+                .andExpect(jsonPath("$.destinationUrl").value("https://example.com/a/long/path"))
+                .andExpect(jsonPath("$.customAlias").value(false))
+                .andExpect(jsonPath("$.createdAt").value("2026-11-13T10:15:30Z"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links rejects a blank url with 400")
+    void createLinkRejectsBlankUrl() throws Exception {
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"url":"  "}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -55,6 +111,63 @@ class LinkApiControllerTest {
         mockMvc.perform(post(LINKS)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{not-json"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links rejects a javascript: URL with 422")
+    void createLinkRejectsJavascriptUrl() throws Exception {
+        given(callerResolver.current()).willReturn(CallerContext.guest());
+        given(linkService.createLink(any(CreateLinkRequest.class), any(CallerContext.class)))
+                .willThrow(new InvalidUrlException("Only http and https URLs are allowed"));
+
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"url":"javascript:alert(1)"}
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.title").value("Invalid destination URL"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links answers 409 when an alias is already taken")
+    void createLinkConflictsOnTakenAlias() throws Exception {
+        given(callerResolver.current()).willReturn(CallerContext.guest());
+        given(linkService.createLink(any(CreateLinkRequest.class), any(CallerContext.class)))
+                .willThrow(new ShortCodeConflictException("Short code already taken: promo"));
+
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"url":"https://example.com/x","alias":"promo"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.title").value("Short code already taken"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links answers 403 when a guest requests an alias")
+    void createLinkForbidsGuestAlias() throws Exception {
+        given(callerResolver.current()).willReturn(CallerContext.guest());
+        given(linkService.createLink(any(CreateLinkRequest.class), any(CallerContext.class)))
+                .willThrow(new AliasNotAllowedException("Custom aliases require the paid plan"));
+
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"url":"https://example.com/x","alias":"promo"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.title").value("Custom aliases require the paid plan"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links rejects a body without url with 400")
+    void createLinkRejectsMissingUrl() throws Exception {
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
                 .andExpect(status().isBadRequest());
     }
 

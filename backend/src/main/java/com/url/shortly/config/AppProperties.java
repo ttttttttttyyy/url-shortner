@@ -20,11 +20,19 @@ public record AppProperties(
 		Analytics analytics) {
 
 	public record ShortCode(
-			@DefaultValue("7") int length,
+			@DefaultValue("6") int guestMinLength,
+			@DefaultValue("5") int freeMinLength,
+			@DefaultValue("4") int paidMinLength,
 			@DefaultValue("32") int maxLength,
 			@DefaultValue("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") String alphabet,
 			@DefaultValue("10") int maxGenerationAttempts,
 			List<String> reservedAliases) {
+
+		public ShortCode {
+			if (reservedAliases == null) {
+				reservedAliases = List.of();
+			}
+		}
 	}
 
 	public record Link(

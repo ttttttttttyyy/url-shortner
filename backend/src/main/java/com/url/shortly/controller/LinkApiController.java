@@ -1,5 +1,7 @@
 package com.url.shortly.controller;
 
+import java.net.URI;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,26 +13,48 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.DTO.CreateLinkResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
+import com.url.shortly.Entities.Link;
+import com.url.shortly.service.LinkService;
+import com.url.shortly.service.ShortUrlBuilder;
+
+import jakarta.validation.Valid;
 
 /**
- * Link management API. Every endpoint is a placeholder until the persistence
- * and authorization layers are wired in.
+ * Link management API. Only creation is implemented so far; the remaining
+ * endpoints are placeholders until the ownership/authorization layer lands.
  */
 @RestController
 @RequestMapping("/api/v1/links")
 public class LinkApiController {
+
+    final LinkService linkService;
+    final CallerResolver callerResolver;
+    final ShortUrlBuilder shortUrlBuilder;
+
+    LinkApiController(LinkService linkService, CallerResolver callerResolver, ShortUrlBuilder shortUrlBuilder) {
+        
+        this.linkService = linkService;
+        this.callerResolver = callerResolver;
+        this.shortUrlBuilder = shortUrlBuilder;
+    }
 
     /**
      * Create a short link; guest or authenticated access according to rate and
      * plan rules.
      */
     @PostMapping
-    public ResponseEntity<Void> createLink(@RequestBody CreateLinkRequest request) {
-        // TODO: resolve guest/authenticated caller, enforce rate + plan limits,
-        // generate a short code and persist the link.
-        return notImplemented();
+    public ResponseEntity<CreateLinkResponse> createLink(
+            @Valid @RequestBody CreateLinkRequest request) {
+
+        Link link = linkService.createLink(request, callerResolver.current());
+        String shortUrl = shortUrlBuilder.build(link.getShortCode());
+
+        return ResponseEntity.created(URI.create(shortUrl))
+                .body(CreateLinkResponse.from(link, shortUrl));
     }
 
     /** List the authenticated user's own links. */

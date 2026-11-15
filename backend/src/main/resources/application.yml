@@ -117,7 +117,11 @@ app:
   base-url: ${APP_BASE_URL:http://localhost:10004}
 
   short-code:
-    length: ${SHORT_CODE_LENGTH:7}
+    # Minimum generated-code length per tier. Paid users can also claim
+    # shorter codes as custom aliases (FR-08 / FR-15).
+    guest-min-length: ${SHORT_CODE_GUEST_MIN_LENGTH:6}
+    free-min-length: ${SHORT_CODE_FREE_MIN_LENGTH:5}
+    paid-min-length: ${SHORT_CODE_PAID_MIN_LENGTH:4}
     max-length: ${SHORT_CODE_MAX_LENGTH:32}
     alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     max-generation-attempts: ${SHORT_CODE_MAX_ATTEMPTS:10}

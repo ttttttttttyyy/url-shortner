@@ -11,9 +11,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Verifies the SoW baseline configuration is bound correctly: 7-character
- * short codes, a 32-character maximum, the 62-character alphabet, reserved
- * aliases and the default plan limits.
+ * Verifies the SoW baseline configuration is bound correctly: tiered short
+ * code lengths (guest 6, free 5, paid 4), a 32-character maximum, the
+ * 62-character alphabet, reserved aliases and the default plan limits.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -27,7 +27,9 @@ class AppPropertiesTest {
     void shortCodeDefaults() {
         AppProperties.ShortCode shortCode = appProperties.shortCode();
 
-        assertThat(shortCode.length()).isEqualTo(7);
+        assertThat(shortCode.guestMinLength()).isEqualTo(6);
+        assertThat(shortCode.freeMinLength()).isEqualTo(5);
+        assertThat(shortCode.paidMinLength()).isEqualTo(4);
         assertThat(shortCode.maxLength()).isEqualTo(32);
         assertThat(shortCode.alphabet()).hasSize(62);
         assertThat(shortCode.maxGenerationAttempts()).isEqualTo(10);
