@@ -51,7 +51,10 @@ class LinkEndpointsIntegrationTest {
     private CallerResolver callerResolver;
 
     @BeforeEach
-    void defaultToGuestCaller() {
+    void resetStateAndDefaultToGuestCaller() {
+        // Tests insert rows and share one H2 database; JUnit method order is
+        // deterministic but not fixed, so never rely on a fresh database.
+        linkRepository.deleteAll();
         given(callerResolver.current()).willReturn(CallerContext.guest());
     }
 

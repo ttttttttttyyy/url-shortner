@@ -29,7 +29,7 @@ import com.url.shortly.config.AppProperties;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.Repository.LinkRepository;
-import com.url.shortly.Validation.UrlValidator;
+import com.url.shortly.validation.UrlValidator;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;

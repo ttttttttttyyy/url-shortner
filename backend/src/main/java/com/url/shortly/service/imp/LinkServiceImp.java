@@ -12,7 +12,7 @@ import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.Repository.LinkRepository;
-import com.url.shortly.Validation.UrlValidator;
+import com.url.shortly.validation.UrlValidator;
 import com.url.shortly.config.AppProperties;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.service.LinkService;
@@ -58,6 +58,9 @@ public class LinkServiceImp implements LinkService{
                 throw new PasswordNotAllowedException("Password-protected links require the paid plan");
             }
             // FR-13 is not implemented yet; never store an unhashed password.
+            // Temporary mapping choice: 403 keeps a single status for "you cannot
+            // have this feature"; 501 Not Implemented would also be defensible
+            // for the paid tier. Revisit when FR-13 lands.
             throw new PasswordNotAllowedException("Password protection is not available yet");
         }
 

@@ -1,4 +1,4 @@
-package com.url.shortly.Validation;
+package com.url.shortly.validation;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -18,19 +18,23 @@ import com.url.shortly.service.exeptions.InvalidUrlException;
  * self-shortening, bounded length after ASCII encoding.
  *
  * <p><strong>Path policy (accepted product decision):</strong> the path is
- * normalized per RFC 3986 — dot segments and empty segments collapse
- * ({@code /a/./b/../c -> /a/c}, {@code /a//b -> /a/b}). This matches how the
- * destination server resolves the path and keeps stored links clean, but it
- * rewrites the stored destination: links whose identity depends on the exact
- * path (for example pre-signed S3 URLs) may break. If that ever matters,
- * replace {@code uri.normalize().toASCIIString()} with
- * {@code uri.toASCIIString()} and update the pinning test in
+ * intentionally normalized with {@link URI#normalize()} — dot segments
+ * collapse (RFC 3986 §5.2.4) and Java additionally collapses empty segments
+ * ({@code /a//b -> /a/b}), which is Java behavior, not an RFC requirement.
+ * This keeps stored links clean, but it may rewrite destinations whose path
+ * identity depends on empty segments (for example pre-signed S3 URLs). If
+ * that ever matters, replace {@code uri.normalize().toASCIIString()} with
+ * {@code uri.toASCIIString()} and update the pinning tests in
  * {@code UrlValidatorTest}.
  */
 @Component
 public class UrlValidator {
 
     private static final Set<String> ALLOWED = Set.of("http", "https");
+
+    /** Keep in sync with {@code @Size(max = 2048)} on {@code CreateLinkRequest.url};
+     * bean-validation annotations need a compile-time constant, so the value
+     * is duplicated here and checked again after percent-encoding. */
     private static final int MAX_LENGTH = 2048;
 
     /** DNS label: alphanumeric, may contain inner hyphens, 1–63 characters. */
@@ -45,10 +49,14 @@ public class UrlValidator {
 
     UrlValidator(String baseUrl) {
         this.shortOrigin = originOf(URI.create(baseUrl));
+        if (this.shortOrigin == null) {
+            throw new IllegalStateException(
+                    "app.base-url must be an absolute URL with a host");
+        }
     }
 
     /** @return the normalized URL to store and redirect to */
-    public  String validateAndNormalize(String raw){
+    public String validateAndNormalize(String raw) {
 
         if (raw == null || raw.isBlank()) {
             throw new InvalidUrlException("Destination URL is required");
@@ -75,7 +83,7 @@ public class UrlValidator {
         if (uri.getPort() != -1 && (uri.getPort() < 1 || uri.getPort() > 65535)) {
             throw new InvalidUrlException("Destination URL has an invalid port");
         }
-        if (shortOrigin != null && shortOrigin.equals(originOf(uri))) {
+        if (shortOrigin.equals(originOf(uri))) {
             throw new InvalidUrlException("Destination URL cannot point at the shortener itself");
         }
         validateHostname(uri.getHost());
@@ -97,6 +105,10 @@ public class UrlValidator {
      * http → 80), so {@code https://sho.rt} and {@code https://sho.rt:443}
      * are the same origin, while {@code http://localhost:3000} differs from
      * {@code http://localhost:10004} in development.
+     *
+     * <p>Trailing dots are stripped ({@code sho.rt.} is the same DNS host as
+     * {@code sho.rt}), so {@code https://sho.rt./abc} cannot bypass the
+     * self-shortening check.
      */
     private static String originOf(URI uri) {
         String scheme = uri.getScheme();
@@ -104,6 +116,8 @@ public class UrlValidator {
         if (scheme == null || host == null) {
             return null;
         }
+
+        host = host.toLowerCase(Locale.ROOT).replaceAll("\\.+$", "");
 
         int port = uri.getPort();
         if (port == -1) {
@@ -114,7 +128,7 @@ public class UrlValidator {
             };
         }
 
-        String authority = host.toLowerCase(Locale.ROOT) + (port == -1 ? "" : ":" + port);
+        String authority = host + (port == -1 ? "" : ":" + port);
         return scheme.toLowerCase(Locale.ROOT) + "://" + authority;
     }
 

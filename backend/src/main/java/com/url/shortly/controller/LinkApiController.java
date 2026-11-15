@@ -4,6 +4,10 @@ import java.net.URI;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -46,6 +50,17 @@ public class LinkApiController {
      * Create a short link; guest or authenticated access according to rate and
      * plan rules.
      */
+    @Operation(summary = "Create a short link",
+            description = "Guest or authenticated access according to rate and plan rules. "
+                    + "The returned Location and shortUrl point at the short URL resource.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Link created"),
+            @ApiResponse(responseCode = "400", description = "Malformed or invalid body"),
+            @ApiResponse(responseCode = "403", description = "Entitlement required (alias or password)"),
+            @ApiResponse(responseCode = "409", description = "Requested alias already taken"),
+            @ApiResponse(responseCode = "422", description = "Invalid destination URL or expiration"),
+            @ApiResponse(responseCode = "503", description = "Short-code space exhausted")
+    })
     @PostMapping
     public ResponseEntity<CreateLinkResponse> createLink(
             @Valid @RequestBody CreateLinkRequest request) {
