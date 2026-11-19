@@ -17,7 +17,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.ratelimit.ClientIpResolver;
+import com.url.shortly.ratelimit.RateLimitPolicyResolver;
+import com.url.shortly.ratelimit.RateLimiter;
 import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkResolution.Outcome;
 import com.url.shortly.service.LinkService;
@@ -38,6 +42,18 @@ class LinkControllerTest {
 
     @MockitoBean
     private LinkService linkService;
+
+    @MockitoBean
+    private CallerResolver callerResolver;
+
+    @MockitoBean
+    private ClientIpResolver clientIpResolver;
+
+    @MockitoBean
+    private RateLimitPolicyResolver rateLimitPolicyResolver;
+
+    @MockitoBean
+    private RateLimiter rateLimiter;
 
     private static Link link(String url) {
         Link link = new Link();

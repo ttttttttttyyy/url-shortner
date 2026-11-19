@@ -1,7 +1,12 @@
 package com.url.shortly.controller;
 
+import java.net.URI;
+
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -12,8 +17,11 @@ import com.url.shortly.service.exeptions.InvalidAliasException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
 import com.url.shortly.service.exeptions.InvalidUrlException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
+import com.url.shortly.service.exeptions.RateLimitExceededException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
 import com.url.shortly.service.exeptions.ShortCodeGenerationException;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Maps domain exceptions to RFC 9457 problem-detail responses.
@@ -61,6 +69,17 @@ public class ApiExceptionHandler {
     ProblemDetail exhausted(ShortCodeGenerationException ex) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE,
                 "Could not allocate a short code", ex.getMessage());
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> rateLimited(RateLimitExceededException ex, HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", ex.getMessage());
+        problem.setInstance(URI.create(request.getRequestURI()));
+        problem.setProperty("policy", ex.policy());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()))
+                .cacheControl(CacheControl.noStore())
+                .body(problem);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

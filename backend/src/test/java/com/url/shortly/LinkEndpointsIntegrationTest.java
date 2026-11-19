@@ -40,7 +40,12 @@ import com.url.shortly.enums.PlanTier;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@TestPropertySource(properties = "spring.datasource.url=jdbc:h2:mem:shortly-endpoints;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1")
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:h2:mem:shortly-endpoints;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
+        // FR-04 limits are exercised in dedicated tests; this suite performs
+        // many creations from one address and would otherwise trip the burst.
+        "app.security.rate-limit.enabled=false"
+})
 class LinkEndpointsIntegrationTest {
 
     @Autowired

@@ -74,4 +74,17 @@ class AppPropertiesTest {
         assertThat(appProperties.analytics().geoGranularity()).isEqualTo("country");
         assertThat(appProperties.analytics().anonymizeIp()).isTrue();
     }
+
+    @Test
+    @DisplayName("FR-04 rate limits default to burst plus a rolling daily rate")
+    void rateLimitDefaults() {
+        AppProperties.Security.RateLimit rateLimit = appProperties.security().rateLimit();
+
+        assertThat(rateLimit.enabled()).isTrue();
+        assertThat(rateLimit.window()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(rateLimit.guestLinkCreation()).isEqualTo(5);
+        assertThat(rateLimit.guestLinkCreationDaily()).isEqualTo(50);
+        assertThat(rateLimit.globalGuestLinkCreation()).isZero();
+        assertThat(rateLimit.userLinkCreation()).isEqualTo(30);
+    }
 }

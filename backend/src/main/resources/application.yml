@@ -46,7 +46,9 @@ spring:
 server:
   port: ${SERVER_PORT:10004}
   shutdown: graceful
-  forward-headers-strategy: framework
+  # Use the container's trusted-proxy support (Tomcat RemoteIpValve) rather
+  # than ForwardedHeaderFilter, which trusts forwarded headers from any peer.
+  forward-headers-strategy: native
   max-http-request-header-size: 16KB
   compression:
     enabled: true
@@ -61,6 +63,13 @@ server:
         same-site: lax
         secure: true
   tomcat:
+    remoteip:
+      # Only rewrite the client address when the direct peer is a trusted
+      # proxy. Set TRUSTED_PROXIES for Docker/bridge networks or a non-local
+      # reverse proxy; never leave this open on a directly exposed port.
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: ${TRUSTED_PROXIES:127\.0\.0\.1|::1}
     threads:
       max: 200
       min-spare: 10
@@ -172,6 +181,11 @@ app:
       enabled: ${RATE_LIMIT_ENABLED:true}
       window: ${RATE_LIMIT_WINDOW:1m}
       guest-link-creation: ${RATE_LIMIT_GUEST_CREATE:5}
+      # Sustained 24h token-bucket rate; 0 disables. 5/min alone still allows
+      # ~7,200/day, which is too much for an unaccountable guest.
+      guest-link-creation-daily: ${RATE_LIMIT_GUEST_CREATE_DAILY:50}
+      # Per-instance safety valve; 0 disables. Move to Redis before scaling out.
+      global-guest-link-creation: ${RATE_LIMIT_GLOBAL_GUEST_CREATE:0}
       user-link-creation: ${RATE_LIMIT_USER_CREATE:30}
       login-attempts: ${RATE_LIMIT_LOGIN:10}
       password-verification: ${RATE_LIMIT_PASSWORD_VERIFY:10}

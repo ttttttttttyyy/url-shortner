@@ -22,6 +22,8 @@ import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.DTO.CreateLinkResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.ratelimit.RateLimitScope;
+import com.url.shortly.ratelimit.RateLimited;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.ShortUrlBuilder;
 
@@ -59,8 +61,10 @@ public class LinkApiController {
             @ApiResponse(responseCode = "403", description = "Entitlement required (alias or password)"),
             @ApiResponse(responseCode = "409", description = "Requested alias already taken"),
             @ApiResponse(responseCode = "422", description = "Invalid destination URL or expiration"),
+            @ApiResponse(responseCode = "429", description = "Guest or user creation rate limit exceeded"),
             @ApiResponse(responseCode = "503", description = "Short-code space exhausted")
     })
+    @RateLimited(RateLimitScope.LINK_CREATION)
     @PostMapping
     public ResponseEntity<CreateLinkResponse> createLink(
             @Valid @RequestBody CreateLinkRequest request) {

@@ -1,18 +1,29 @@
 package com.url.shortly.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +36,11 @@ import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.ratelimit.ClientIpResolver;
+import com.url.shortly.ratelimit.RateLimitDecision;
+import com.url.shortly.ratelimit.RateLimitPolicy;
+import com.url.shortly.ratelimit.RateLimitPolicyResolver;
+import com.url.shortly.ratelimit.RateLimiter;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.ShortUrlBuilder;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
@@ -55,6 +71,77 @@ class LinkApiControllerTest {
 
     @MockitoBean
     private ShortUrlBuilder shortUrlBuilder;
+
+    @MockitoBean
+    private ClientIpResolver clientIpResolver;
+
+    @MockitoBean
+    private RateLimitPolicyResolver rateLimitPolicyResolver;
+
+    @MockitoBean
+    private RateLimiter rateLimiter;
+
+    @BeforeEach
+    void defaultToGuestCallerWithoutRateLimitPolicies() {
+        given(callerResolver.current()).willReturn(CallerContext.guest());
+        given(rateLimitPolicyResolver.policiesFor(any(), any())).willReturn(List.of());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/links answers 429 with Retry-After and policy when limited")
+    void createLinkAnswersTooManyRequests() throws Exception {
+        given(rateLimitPolicyResolver.policiesFor(any(), any()))
+                .willReturn(List.of(new RateLimitPolicy(
+                        "guest-link-creation", 5, Duration.ofMinutes(1), false)));
+        given(clientIpResolver.key(any())).willReturn("hashed-client");
+        given(rateLimiter.tryAcquire(anyString(), any()))
+                .willReturn(RateLimitDecision.rejected("guest-link-creation", 12));
+
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://example.com/x\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "12"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Too many requests"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/links"))
+                .andExpect(jsonPath("$.policy").value("guest-link-creation"));
+
+        verifyNoInteractions(linkService);
+    }
+
+    @Test
+    @DisplayName("A CORS preflight never consults the limiter")
+    void preflightDoesNotConsumeQuota() throws Exception {
+        clearInvocations(rateLimitPolicyResolver, rateLimiter);
+
+        mockMvc.perform(options(LINKS)
+                        .header("Origin", "https://app.example.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andReturn();
+
+        verify(rateLimitPolicyResolver, never()).policiesFor(any(), any());
+        verify(rateLimiter, never()).tryAcquire(any(), any());
+    }
+
+    @Test
+    @DisplayName("A malformed body is rejected only after the limiter consumed a token")
+    void malformedBodyConsumesQuota() throws Exception {
+        given(rateLimitPolicyResolver.policiesFor(any(), any()))
+                .willReturn(List.of(new RateLimitPolicy(
+                        "guest-link-creation", 5, Duration.ofMinutes(1), false)));
+        given(clientIpResolver.key(any())).willReturn("hashed-client");
+        given(rateLimiter.tryAcquire(anyString(), any()))
+                .willReturn(RateLimitDecision.allowed("guest-link-creation"));
+
+        mockMvc.perform(post(LINKS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not-json"))
+                .andExpect(status().isBadRequest());
+
+        verify(rateLimiter).tryAcquire(eq("ip:hashed-client"), any(RateLimitPolicy.class));
+    }
 
     @Test
     @DisplayName("POST /api/v1/links returns 201 with the short URL in Location and body")
