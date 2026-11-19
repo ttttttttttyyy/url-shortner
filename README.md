@@ -97,6 +97,36 @@ The application uses:
 - Protection against abusive link creation through rate limiting.
 - Moderation and reporting mechanisms.
 
+## Configuration notes
+
+Rate limiting for guest link creation (FR-04) is configured through environment
+variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RATE_LIMIT_ENABLED` | `true` | Master switch for all rate-limit policies |
+| `RATE_LIMIT_WINDOW` | `1m` | Burst window (Spring `Duration` syntax) |
+| `RATE_LIMIT_GUEST_CREATE` | `5` | Guest creations per address per burst window |
+| `RATE_LIMIT_GUEST_CREATE_DAILY` | `50` | Guest sustained rate per 24 hours; `0` disables |
+| `RATE_LIMIT_GLOBAL_GUEST_CREATE` | `0` | Optional per-instance global cap; `0` disables |
+| `RATE_LIMIT_USER_CREATE` | `30` | Authenticated creations per user per window (FR-05) |
+| `TRUSTED_PROXIES` | loopback only | Java regex of direct peers allowed to supply `X-Forwarded-For` |
+
+`TRUSTED_PROXIES` is a regex, not a CIDR list. The default is:
+
+```sh
+TRUSTED_PROXIES='127\.0\.0\.1|::1'
+```
+
+Quote it in the shell so the `|` is not treated as a pipe. Set it to the address
+of your reverse proxy or Docker bridge network; leaving the default on a
+directly exposed port means clients can spoof their address and bypass per-IP
+limits.
+
+Rate-limit state is in memory: it is per instance and resets on restart. See
+`docs/fr-04-guest-creation.md` for the full behavior, the guest-retention
+deferral and the FR-04 boundaries.
+
 ## Project Scope
 
 The project covers the development of a complete URL shortening platform, including:

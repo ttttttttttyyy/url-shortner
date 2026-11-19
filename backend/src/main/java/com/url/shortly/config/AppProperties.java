@@ -73,6 +73,8 @@ public record AppProperties(
 				@DefaultValue("true") boolean enabled,
 				@DefaultValue("1m") Duration window,
 				@DefaultValue("5") int guestLinkCreation,
+				@DefaultValue("50") int guestLinkCreationDaily,
+				@DefaultValue("0") int globalGuestLinkCreation,
 				@DefaultValue("30") int userLinkCreation,
 				@DefaultValue("10") int loginAttempts,
 				@DefaultValue("10") int passwordVerification) {
