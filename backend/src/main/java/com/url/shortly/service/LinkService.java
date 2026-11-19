@@ -14,7 +14,15 @@ public interface LinkService {
     ArrayList<Link> getUserShortLinks();
     
     Link createLink(CreateLinkRequest request, CallerContext caller);
-    
-    Link getOriginalLink(String shortCode);
+
+    /**
+     * Resolve a public short code according to the FR-03 policy.
+     *
+     * <p>Returns a {@link LinkResolution} instead of a raw row so callers
+     * cannot accidentally redirect a disabled, blocked, expired or deleted
+     * link. An unknown code is reported as
+     * {@link LinkResolution.Outcome#NOT_FOUND}, not as an exception.
+     */
+    LinkResolution resolve(String shortCode);
 
 }

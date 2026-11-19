@@ -2,28 +2,77 @@ package com.url.shortly.controller;
 
 import java.net.URI;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.url.shortly.Entities.Link;
+import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+
+/**
+ * Public short-link entry point (SoW FR-03).
+ *
+ * <p>The path pattern doubles as a route guard: only 1-32 characters from the
+ * code alphabet reach the database. Requests such as {@code /favicon.ico},
+ * {@code /robots.txt}, {@code /abc/} and over-long codes fall through to the
+ * framework's 404 without a lookup.
+ */
 @RestController
 public class LinkController {
 
-    final LinkService linkService;
+    private static final Logger log = LoggerFactory.getLogger(LinkController.class);
 
-    LinkController(LinkService linkService) {
+    private static final String SHORT_CODE_MAPPING = "/{shortCode:[A-Za-z0-9_-]{1,32}}";
+
+    private final LinkService linkService;
+    private final LinkStatusPage statusPage;
+
+    LinkController(LinkService linkService, LinkStatusPage statusPage) {
         this.linkService = linkService;
+        this.statusPage = statusPage;
     }
-    @GetMapping("/{shortCode}")
-    public ResponseEntity<Void> getOriginalURL(@PathVariable String shortCode) {
-        Link link = linkService.getOriginalLink(shortCode);
-        return ResponseEntity.status(HttpStatus.FOUND) // 302 redirect
-                .location(URI.create(link.getUrl()))
+
+    @Operation(summary = "Resolve a short link",
+            description = "Redirects ACTIVE links with 302. Every other outcome returns an HTML status page.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "302", description = "Redirect to the saved destination"),
+            @ApiResponse(responseCode = "401", description = "Password required (FR-13 placeholder)"),
+            @ApiResponse(responseCode = "403", description = "Link disabled or blocked"),
+            @ApiResponse(responseCode = "404", description = "Short code not found"),
+            @ApiResponse(responseCode = "410", description = "Link expired or deleted"),
+            @ApiResponse(responseCode = "500", description = "Stored destination is malformed")
+    })
+    @GetMapping(SHORT_CODE_MAPPING)
+    public ResponseEntity<?> resolveShortLink(@PathVariable String shortCode) {
+        LinkResolution resolution = linkService.resolve(shortCode);
+        if (!resolution.redirects()) {
+            return statusPage.render(resolution.outcome());
+        }
+
+        URI location;
+        try {
+            location = URI.create(resolution.link().getUrl());
+        } catch (IllegalArgumentException ex) {
+            // Rows written before FR-02 could contain a malformed destination.
+            // Keep the failure contained: no destination in the response or log.
+            log.error("Stored destination for short code {} is not a valid URI", shortCode);
+            return statusPage.renderInternalError();
+        }
+
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(location)
+                .cacheControl(CacheControl.noStore())
+                .header("Referrer-Policy", "no-referrer")
+                .header("X-Robots-Tag", "noindex")
                 .build();
     }
 }

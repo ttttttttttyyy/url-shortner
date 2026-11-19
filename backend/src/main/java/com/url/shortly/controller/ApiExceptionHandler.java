@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidAliasException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
-import com.url.shortly.service.exeptions.InvalidShortCodeException;
 import com.url.shortly.service.exeptions.InvalidUrlException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
@@ -62,11 +61,6 @@ public class ApiExceptionHandler {
     ProblemDetail exhausted(ShortCodeGenerationException ex) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE,
                 "Could not allocate a short code", ex.getMessage());
-    }
-
-    @ExceptionHandler(InvalidShortCodeException.class)
-    ProblemDetail unknownShortCode(InvalidShortCodeException ex) {
-        return problem(HttpStatus.NOT_FOUND, "Short code not found", ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

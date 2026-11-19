@@ -3,7 +3,6 @@ package com.url.shortly.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -11,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -25,17 +25,18 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CreateLinkRequest;
-import com.url.shortly.config.AppProperties;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.Repository.LinkRepository;
-import com.url.shortly.validation.UrlValidator;
+import com.url.shortly.config.AppProperties;
 import com.url.shortly.enums.PlanTier;
+import com.url.shortly.service.LinkResolution.Outcome;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
 import com.url.shortly.service.imp.LinkServiceImp;
+import com.url.shortly.validation.UrlValidator;
 
 /**
  * Unit tests for the createLink paths: generated codes, custom aliases,
@@ -202,5 +203,121 @@ class LinkServiceImpTest {
                 .isInstanceOf(AliasNotAllowedException.class);
 
         verify(linkRepository, org.mockito.Mockito.never()).saveAndFlush(any(Link.class));
+    }
+
+    // ------------------------------------------------------------------
+    // FR-03 resolution policy
+    // ------------------------------------------------------------------
+
+    private Link resolvedLink(String code) {
+        Link link = new Link();
+        link.setShortCode(code);
+        link.setUrl("https://example.com/target");
+        return link;
+    }
+
+    private Outcome outcomeFor(Link link) {
+        when(linkRepository.findByShortCode(link.getShortCode())).thenReturn(Optional.of(link));
+        return service.resolve(link.getShortCode()).outcome();
+    }
+
+    @Test
+    @DisplayName("an unknown code resolves to NOT_FOUND without a link")
+    void unknownCodeIsNotFound() {
+        when(linkRepository.findByShortCode("missing")).thenReturn(Optional.empty());
+
+        LinkResolution resolution = service.resolve("missing");
+
+        assertThat(resolution.outcome()).isEqualTo(Outcome.NOT_FOUND);
+        assertThat(resolution.link()).isNull();
+        assertThat(resolution.redirects()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an ACTIVE link with no expiry and no password redirects")
+    void activeLinkRedirects() {
+        assertThat(outcomeFor(resolvedLink("active1"))).isEqualTo(Outcome.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("one second after expiresAt the link is EXPIRED")
+    void linkIsExpiredAfterExpiry() {
+        Link link = resolvedLink("expired1");
+        link.setExpiresAt(Instant.now().minusSeconds(1));
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.EXPIRED);
+    }
+
+    @Test
+    @DisplayName("one second before expiresAt the link is still ACTIVE")
+    void linkIsActiveBeforeExpiry() {
+        Link link = resolvedLink("active2");
+        link.setExpiresAt(Instant.now().plusSeconds(1));
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("DISABLED, BLOCKED and DELETED statuses resolve to their own outcomes")
+    void terminalStatusesAreReported() {
+        Link link = resolvedLink("status1");
+        link.setStatus(LinkStatus.DISABLED);
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.DISABLED);
+
+        link.setStatus(LinkStatus.BLOCKED);
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.BLOCKED);
+
+        link.setStatus(LinkStatus.DELETED);
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.DELETED);
+    }
+
+    @Test
+    @DisplayName("a soft-deleted ACTIVE row resolves to DELETED")
+    void deletedAtWinsOverActiveStatus() {
+        Link link = resolvedLink("deleted2");
+        link.setDeletedAt(Instant.now());
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.DELETED);
+    }
+
+    @Test
+    @DisplayName("a password hash resolves to PASSWORD_REQUIRED")
+    void passwordHashResolvesToPasswordRequired() {
+        Link link = resolvedLink("locked1");
+        link.setPasswordHash("{bcrypt}hash");
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.PASSWORD_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("deleted beats blocked and expiry")
+    void deletedHasHighestPrecedence() {
+        Link link = resolvedLink("deleted3");
+        link.setDeletedAt(Instant.now());
+        link.setStatus(LinkStatus.BLOCKED);
+        link.setExpiresAt(Instant.now().minusSeconds(1));
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.DELETED);
+    }
+
+    @Test
+    @DisplayName("blocked beats disabled, expiry and password")
+    void blockedBeatsLaterStates() {
+        Link link = resolvedLink("blocked2");
+        link.setStatus(LinkStatus.BLOCKED);
+        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setPasswordHash("{bcrypt}hash");
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.BLOCKED);
+    }
+
+    @Test
+    @DisplayName("expiry beats password so an expired link never asks for a secret")
+    void expiryBeatsPassword() {
+        Link link = resolvedLink("expired2");
+        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setPasswordHash("{bcrypt}hash");
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.EXPIRED);
     }
 }

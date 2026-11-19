@@ -15,10 +15,10 @@ import com.url.shortly.Repository.LinkRepository;
 import com.url.shortly.validation.UrlValidator;
 import com.url.shortly.config.AppProperties;
 import com.url.shortly.enums.PlanTier;
+import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.ShortCodeGenerator;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
-import com.url.shortly.service.exeptions.InvalidShortCodeException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
 @Service 
@@ -43,10 +43,38 @@ public class LinkServiceImp implements LinkService{
         throw new UnsupportedOperationException("Unimplemented method 'getUserShortLinks'");
     }
 
+    /**
+     * FR-03 precedence: deleted &gt; blocked &gt; disabled &gt; expired &gt;
+     * password &gt; active.
+     *
+     * <p>Status wins over expiry so a blocked link stays blocked even after its
+     * expiry date. Expiry wins over password so an expired link does not ask a
+     * stranger to prove knowledge of a secret first; FR-13 must preserve that
+     * order. A raw row is never returned to the controller.
+     */
     @Override
-    public Link getOriginalLink(String shortCode) {
-        return linkRepository.findByShortCode(shortCode)
-                .orElseThrow(() -> new InvalidShortCodeException(shortCode));
+    public LinkResolution resolve(String shortCode) {
+        Link link = linkRepository.findByShortCode(shortCode).orElse(null);
+        if (link == null) {
+            return LinkResolution.notFound();
+        }
+
+        if (link.getStatus() == LinkStatus.DELETED || link.getDeletedAt() != null) {
+            return new LinkResolution(link, LinkResolution.Outcome.DELETED);
+        }
+        if (link.getStatus() == LinkStatus.BLOCKED) {
+            return new LinkResolution(link, LinkResolution.Outcome.BLOCKED);
+        }
+        if (link.getStatus() == LinkStatus.DISABLED) {
+            return new LinkResolution(link, LinkResolution.Outcome.DISABLED);
+        }
+        if (link.isExpired()) {
+            return new LinkResolution(link, LinkResolution.Outcome.EXPIRED);
+        }
+        if (link.getPasswordHash() != null) {
+            return new LinkResolution(link, LinkResolution.Outcome.PASSWORD_REQUIRED);
+        }
+        return new LinkResolution(link, LinkResolution.Outcome.ACTIVE);
     }
 
     @Override
