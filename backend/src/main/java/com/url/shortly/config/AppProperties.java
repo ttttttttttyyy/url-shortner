@@ -50,7 +50,8 @@ public record AppProperties(
 	public record Security(
 			Jwt jwt,
 			Cors cors,
-			RateLimit rateLimit) {
+			RateLimit rateLimit,
+			Auth auth) {
 
 		public record Jwt(
 				@DefaultValue("shortly") String issuer,
@@ -69,6 +70,19 @@ public record AppProperties(
 				@DefaultValue("3600") long maxAge) {
 		}
 
+		/**
+		 * Refresh-session and password-hashing settings. The refresh cookie is
+		 * host-only and path-scoped to the authentication routes; it must be
+		 * {@code Secure} everywhere except plain-HTTP local development.
+		 */
+		public record Auth(
+				@DefaultValue("SHORTLY_REFRESH") String refreshCookieName,
+				@DefaultValue("/api/v1/auth") String refreshCookiePath,
+				@DefaultValue("true") boolean refreshCookieSecure,
+				@DefaultValue("Lax") String refreshCookieSameSite,
+				@DefaultValue("10") int bcryptStrength) {
+		}
+
 		public record RateLimit(
 				@DefaultValue("true") boolean enabled,
 				@DefaultValue("1m") Duration window,
@@ -77,7 +91,9 @@ public record AppProperties(
 				@DefaultValue("0") int globalGuestLinkCreation,
 				@DefaultValue("30") int userLinkCreation,
 				@DefaultValue("10") int loginAttempts,
-				@DefaultValue("10") int passwordVerification) {
+				@DefaultValue("10") int passwordVerification,
+				@DefaultValue("60") int loginIpAttempts,
+				@DefaultValue("5") int registrationAttempts) {
 		}
 	}
 

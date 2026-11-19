@@ -94,11 +94,33 @@ class RateLimitPolicyResolverTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("FR-05 auth scopes always use per-address policies")
+    void authPolicies() {
+        RateLimitPolicyResolver resolver = resolver(true, Duration.ofMinutes(1), 5, 50, 0, 30);
+
+        assertThat(RateLimitScope.AUTH_REGISTRATION.usesUserKey()).isFalse();
+        assertThat(RateLimitScope.AUTH_LOGIN.usesUserKey()).isFalse();
+
+        // Even an authenticated caller is throttled by address on auth routes.
+        List<RateLimitPolicy> registration = resolver.policiesFor(
+                RateLimitScope.AUTH_REGISTRATION, new CallerContext(7L, PlanTier.FREE));
+        List<RateLimitPolicy> login = resolver.policiesFor(
+                RateLimitScope.AUTH_LOGIN, new CallerContext(7L, PlanTier.FREE));
+
+        assertThat(registration).extracting(RateLimitPolicy::name)
+                .containsExactly("auth-register-ip");
+        assertThat(registration.get(0).limit()).isEqualTo(5);
+        assertThat(login).extracting(RateLimitPolicy::name)
+                .containsExactly("auth-login-ip");
+        assertThat(login.get(0).limit()).isEqualTo(60);
+    }
+
     private static RateLimitPolicyResolver resolver(boolean enabled, Duration window,
                                                     int guest, int daily, int global, int user) {
         AppProperties.Security.RateLimit rateLimit = new AppProperties.Security.RateLimit(
-                enabled, window, guest, daily, global, user, 10, 10);
-        AppProperties.Security security = new AppProperties.Security(null, null, rateLimit);
+                enabled, window, guest, daily, global, user, 10, 10, 60, 5);
+        AppProperties.Security security = new AppProperties.Security(null, null, rateLimit, null);
         AppProperties properties = new AppProperties(
                 "http://localhost:10004", null, null, security, null, null, null);
         return new RateLimitPolicyResolver(properties);

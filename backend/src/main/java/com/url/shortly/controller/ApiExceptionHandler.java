@@ -12,9 +12,13 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.url.shortly.service.exeptions.AccountUnavailableException;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
+import com.url.shortly.service.exeptions.EmailAlreadyRegisteredException;
 import com.url.shortly.service.exeptions.InvalidAliasException;
+import com.url.shortly.service.exeptions.InvalidCredentialsException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
+import com.url.shortly.service.exeptions.InvalidPasswordException;
 import com.url.shortly.service.exeptions.InvalidUrlException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.RateLimitExceededException;
@@ -69,6 +73,36 @@ public class ApiExceptionHandler {
     ProblemDetail exhausted(ShortCodeGenerationException ex) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE,
                 "Could not allocate a short code", ex.getMessage());
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    ProblemDetail emailAlreadyRegistered(EmailAlreadyRegisteredException ex) {
+        return problem(HttpStatus.CONFLICT, "Email already registered", ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidPasswordException.class)
+    ProblemDetail invalidPassword(InvalidPasswordException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid password", ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    ResponseEntity<ProblemDetail> invalidCredentials(InvalidCredentialsException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNAUTHORIZED, "Invalid credentials", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"shortly\"")
+                .cacheControl(CacheControl.noStore())
+                .body(problem);
+    }
+
+    @ExceptionHandler(AccountUnavailableException.class)
+    ResponseEntity<ProblemDetail> accountUnavailable(AccountUnavailableException ex) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNAUTHORIZED, "Authentication required", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"shortly\"")
+                .cacheControl(CacheControl.noStore())
+                .body(problem);
     }
 
     @ExceptionHandler(RateLimitExceededException.class)

@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -34,6 +35,7 @@ import com.url.shortly.service.LinkService;
  * service at all.
  */
 @WebMvcTest(LinkController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @Import(LinkStatusPage.class)
 class LinkControllerTest {
 

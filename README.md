@@ -110,7 +110,27 @@ variables:
 | `RATE_LIMIT_GUEST_CREATE_DAILY` | `50` | Guest sustained rate per 24 hours; `0` disables |
 | `RATE_LIMIT_GLOBAL_GUEST_CREATE` | `0` | Optional per-instance global cap; `0` disables |
 | `RATE_LIMIT_USER_CREATE` | `30` | Authenticated creations per user per window (FR-05) |
+| `RATE_LIMIT_REGISTER` | `5` | Registrations per address per window (FR-05) |
+| `RATE_LIMIT_LOGIN` | `10` | Login attempts per account per window (FR-05) |
+| `RATE_LIMIT_LOGIN_IP` | `60` | Login attempts per address per window (FR-05) |
 | `TRUSTED_PROXIES` | loopback only | Java regex of direct peers allowed to supply `X-Forwarded-For` |
+
+Authentication (FR-05) uses a short-lived bearer JWT plus an opaque refresh
+cookie. Configure it with:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `JWT_SECRET` | dev placeholder | HMAC key (at least 32 bytes); set this in production |
+| `JWT_ISSUER` | `shortly` | Expected JWT issuer |
+| `JWT_AUDIENCE` | `shortly-web` | Expected JWT audience |
+| `JWT_ACCESS_TTL` | `15m` | Access token lifetime |
+| `JWT_REFRESH_TTL` | `7d` | Refresh token lifetime |
+| `AUTH_REFRESH_COOKIE_NAME` | `SHORTLY_REFRESH` | Refresh cookie name |
+| `AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth` | Refresh cookie path |
+| `AUTH_REFRESH_COOKIE_SECURE` | `true` | Disable only for local plain HTTP |
+| `AUTH_REFRESH_COOKIE_SAME_SITE` | `Lax` | Refresh cookie `SameSite` attribute |
+| `BCRYPT_STRENGTH` | `10` | Password hashing cost |
+| `CORS_ALLOWED_ORIGINS` | localhost dev origins | Explicit browser origin allow-list |
 
 `TRUSTED_PROXIES` is a regex, not a CIDR list. The default is:
 
@@ -125,7 +145,9 @@ limits.
 
 Rate-limit state is in memory: it is per instance and resets on restart. See
 `docs/fr-04-guest-creation.md` for the full behavior, the guest-retention
-deferral and the FR-04 boundaries.
+deferral and the FR-04 boundaries. Authentication endpoints, token handling
+and the deferred email flows are documented in
+`docs/fr-05-authentication.md`.
 
 ## Project Scope
 

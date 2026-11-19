@@ -170,6 +170,13 @@ app:
       audience: ${JWT_AUDIENCE:shortly-web}
       access-token-ttl: ${JWT_ACCESS_TTL:15m}
       refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+    auth:
+      refresh-cookie-name: ${AUTH_REFRESH_COOKIE_NAME:SHORTLY_REFRESH}
+      refresh-cookie-path: ${AUTH_REFRESH_COOKIE_PATH:/api/v1/auth}
+      # Must stay true in production. The dev profile disables it for plain HTTP.
+      refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+      refresh-cookie-same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
+      bcrypt-strength: ${BCRYPT_STRENGTH:10}
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
       allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
@@ -187,7 +194,12 @@ app:
       # Per-instance safety valve; 0 disables. Move to Redis before scaling out.
       global-guest-link-creation: ${RATE_LIMIT_GLOBAL_GUEST_CREATE:0}
       user-link-creation: ${RATE_LIMIT_USER_CREATE:30}
+      # Per-account login attempts (keyed by a hash of the normalized email).
       login-attempts: ${RATE_LIMIT_LOGIN:10}
+      # Per-address login attempts; higher because NAT shares one address.
+      login-ip-attempts: ${RATE_LIMIT_LOGIN_IP:60}
+      # Registration attempts per address.
+      registration-attempts: ${RATE_LIMIT_REGISTER:5}
       password-verification: ${RATE_LIMIT_PASSWORD_VERIFY:10}
 
   ads:
@@ -258,6 +270,8 @@ app:
   security:
     jwt:
       secret: ${JWT_SECRET:dev-only-shortly-jwt-secret-change-me-0123456789abcdef}
+    auth:
+      refresh-cookie-secure: false
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:4200}
   ads:

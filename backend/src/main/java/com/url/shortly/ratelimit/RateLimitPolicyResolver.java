@@ -25,6 +25,9 @@ public class RateLimitPolicyResolver {
     public static final String GUEST_DAILY = "guest-link-creation-daily";
     public static final String GUEST_GLOBAL = "guest-link-creation-global";
     public static final String USER_BURST = "user-link-creation";
+    public static final String AUTH_REGISTER_IP = "auth-register-ip";
+    public static final String AUTH_LOGIN_IP = "auth-login-ip";
+    public static final String AUTH_LOGIN_ACCOUNT = "auth-login-account";
 
     private static final Duration DAILY_WINDOW = Duration.ofHours(24);
 
@@ -43,7 +46,18 @@ public class RateLimitPolicyResolver {
         AppProperties.Security.RateLimit config = security.rateLimit();
         return switch (scope) {
             case LINK_CREATION -> linkCreationPolicies(config, caller);
+            case AUTH_REGISTRATION -> singlePolicy(
+                    AUTH_REGISTER_IP, config.registrationAttempts(), config);
+            case AUTH_LOGIN -> singlePolicy(
+                    AUTH_LOGIN_IP, config.loginIpAttempts(), config);
         };
+    }
+
+    private List<RateLimitPolicy> singlePolicy(
+            String name, int limit, AppProperties.Security.RateLimit config) {
+        List<RateLimitPolicy> policies = new ArrayList<>();
+        add(policies, name, limit, config.window(), false);
+        return List.copyOf(policies);
     }
 
     private List<RateLimitPolicy> linkCreationPolicies(

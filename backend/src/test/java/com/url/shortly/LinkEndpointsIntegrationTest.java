@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -181,9 +182,9 @@ class LinkEndpointsIntegrationTest {
     }
 
     @Test
-    @DisplayName("Link API endpoints that are not implemented yet stay 501")
+    @DisplayName("Authenticated Link API endpoints that are not implemented yet stay 501")
     void linkApiIsMounted() throws Exception {
-        mockMvc.perform(get("/api/v1/links"))
+        mockMvc.perform(get("/api/v1/links").with(user("tester")))
                 .andExpect(status().isNotImplemented());
     }
 

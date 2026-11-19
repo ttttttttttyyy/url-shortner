@@ -64,7 +64,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        String baseKey = caller != null && caller.userId() != null
+        String baseKey = limited.value().usesUserKey()
+                && caller != null && caller.userId() != null
                 ? "user:" + caller.userId()
                 : "ip:" + clientIpResolver.key(request);
 

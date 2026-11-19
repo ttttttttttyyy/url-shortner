@@ -87,4 +87,28 @@ class AppPropertiesTest {
         assertThat(rateLimit.globalGuestLinkCreation()).isZero();
         assertThat(rateLimit.userLinkCreation()).isEqualTo(30);
     }
+
+    @Test
+    @DisplayName("FR-05 authentication rate limits are configured")
+    void authRateLimitDefaults() {
+        AppProperties.Security.RateLimit rateLimit = appProperties.security().rateLimit();
+
+        assertThat(rateLimit.loginIpAttempts()).isEqualTo(60);
+        assertThat(rateLimit.loginAttempts()).isEqualTo(10);
+        assertThat(rateLimit.registrationAttempts()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("Refresh cookies are host-only, path-scoped and SameSite=Lax")
+    void authCookieDefaults() {
+        AppProperties.Security.Auth auth = appProperties.security().auth();
+
+        assertThat(auth.refreshCookieName()).isEqualTo("SHORTLY_REFRESH");
+        assertThat(auth.refreshCookiePath()).isEqualTo("/api/v1/auth");
+        assertThat(auth.refreshCookieSameSite()).isEqualTo("Lax");
+        // The test profile disables Secure for plain HTTP; production defaults
+        // to true (see application.yml).
+        assertThat(auth.refreshCookieSecure()).isFalse();
+        assertThat(auth.bcryptStrength()).isEqualTo(4);
+    }
 }
