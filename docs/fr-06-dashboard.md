@@ -26,8 +26,9 @@ belong to the web application and are deliberately not implemented here.
 | `size` | `20` | must be between `1` and `100` |
 | `status` | none | one of `ACTIVE`, `DISABLED`, `BLOCKED`; `DELETED` is rejected |
 
-Invalid parameters return `400`; a missing or invalid bearer token returns
-`401`. Links are ordered by `created_at DESC, id DESC`.
+Invalid parameters return `400` as an RFC 9457 problem detail with `instance`;
+a missing or invalid bearer token returns `401`. Links are ordered by
+`created_at DESC, id DESC`.
 
 ```json
 {
@@ -38,6 +39,7 @@ Invalid parameters return `400`; a missing or invalid bearer token returns
       "shortUrl": "https://sho.rt/aB3xK9",
       "destinationUrl": "https://example.com/page",
       "status": "ACTIVE",
+      "effectiveStatus": "ACTIVE",
       "customAlias": false,
       "expiresAt": null,
       "createdAt": "2026-11-20T09:55:47Z",
@@ -63,6 +65,13 @@ Invalid parameters return `400`; a missing or invalid bearer token returns
 
 Password hashes are never projected. As with link creation, `shortUrl` is built
 from the configured `app.base-url`, never from the request's `Host` header.
+
+`status` is the stored row status. `effectiveStatus` also applies the FR-03
+expiry rule, so an `ACTIVE` row whose `expiresAt` has passed is reported as
+`EXPIRED`. This keeps the table consistent with `summary.activeLinks` and
+`summary.expiredLinks`: filtering the list by `status=ACTIVE` can still include
+an expired link, and the UI should use `effectiveStatus` when showing state.
+Both fields are derived from the same application-clock instant as the summary.
 
 ## Ownership
 
@@ -123,4 +132,4 @@ moving pages or filtering does not change it.
 | Full stack | `LinkDashboardIntegrationTest` — ownership scoping, deleted/guest/other-user exclusion, summary counts, expiry derivation, paging, status filter, invalid parameters, auth, ignored `ownerId`, empty dashboard |
 | Controller slice | `LinkApiControllerTest` — `GET /links` response contract and service call |
 | Full stack regression | `LinkEndpointsIntegrationTest` — dashboard mount with an authenticated caller; other management routes remain `501` |
-| Unit | `LinkServiceImpTest` — existing creation paths with the new clock dependency |
+| Unit | `LinkServiceImpTest` — existing creation paths with the new clock dependency; `LinkDisplayStatusTest` — derived expiry and stored-status precedence |

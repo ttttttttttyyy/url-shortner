@@ -22,7 +22,8 @@ public record LinkDashboardResponse(
     public static LinkDashboardResponse from(OwnedLinks result, int page, int size,
                                               ShortUrlBuilder shortUrlBuilder) {
         List<LinkListItem> items = result.links().stream()
-                .map(link -> LinkListItem.from(link, shortUrlBuilder.build(link.getShortCode())))
+                .map(link -> LinkListItem.from(
+                        link, shortUrlBuilder.build(link.getShortCode()), result.now()))
                 .toList();
 
         return new LinkDashboardResponse(

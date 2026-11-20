@@ -2,6 +2,7 @@ package com.url.shortly.service;
 
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 
@@ -20,6 +21,15 @@ public interface LinkService {
     OwnedLinks listOwnedLinks(Long ownerId, int page, int size, LinkStatus status);
 
     Link createLink(CreateLinkRequest request, CallerContext caller);
+
+    /** Read one link owned by {@code ownerId}; soft-deleted rows are not readable. */
+    Link getOwnedLink(Long ownerId, Long linkId);
+
+    /** Update permitted properties of one link owned by {@code ownerId}. */
+    Link updateOwnedLink(Long ownerId, Long linkId, UpdateLinkRequest request);
+
+    /** Soft-delete one link owned by {@code ownerId}; idempotent. */
+    void deleteOwnedLink(Long ownerId, Long linkId);
 
     /**
      * Resolve a public short code according to the FR-03 policy.

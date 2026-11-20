@@ -1,6 +1,7 @@
 package com.url.shortly.controller;
 
 import java.net.URI;
+import java.time.Clock;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -26,6 +27,7 @@ import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.DTO.CreateLinkResponse;
 import com.url.shortly.DTO.LinkDashboardResponse;
+import com.url.shortly.DTO.LinkDetailResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
@@ -51,12 +53,15 @@ public class LinkApiController {
     final LinkService linkService;
     final CallerResolver callerResolver;
     final ShortUrlBuilder shortUrlBuilder;
+    final Clock clock;
 
-    LinkApiController(LinkService linkService, CallerResolver callerResolver, ShortUrlBuilder shortUrlBuilder) {
-        
+    LinkApiController(LinkService linkService, CallerResolver callerResolver,
+                      ShortUrlBuilder shortUrlBuilder, Clock clock) {
+
         this.linkService = linkService;
         this.callerResolver = callerResolver;
         this.shortUrlBuilder = shortUrlBuilder;
+        this.clock = clock;
     }
 
     /**
@@ -115,12 +120,7 @@ public class LinkApiController {
                     "deleted links are not listed; omit status to exclude them");
         }
 
-        CallerContext caller = callerResolver.current();
-        if (caller == null || caller.userId() == null) {
-            throw new AccountUnavailableException();
-        }
-
-        OwnedLinks result = linkService.listOwnedLinks(caller.userId(), page, size, status);
+        OwnedLinks result = linkService.listOwnedLinks(authenticatedOwnerId(), page, size, status);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.VARY, "Authorization")
@@ -128,25 +128,56 @@ public class LinkApiController {
     }
 
     /** Read one owned link. */
+    @Operation(summary = "Read one owned link")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Link details"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @GetMapping("/{linkId}")
-    public ResponseEntity<Void> getLink(@PathVariable Long linkId) {
-        // TODO: load the link and verify ownership.
-        return notImplemented();
+    public ResponseEntity<LinkDetailResponse> getLink(@PathVariable Long linkId) {
+        Link link = linkService.getOwnedLink(authenticatedOwnerId(), linkId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(LinkDetailResponse.from(
+                        link, shortUrlBuilder.build(link.getShortCode()), clock.instant()));
     }
 
     /** Update permitted properties of an owned link. */
+    @Operation(summary = "Update an owned link",
+            description = "Only url, expiresAt and active may be changed. Aliases and passwords "
+                    + "are paid features and are rejected until FR-08/FR-13 ship.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Updated link details"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Alias or password requires a paid plan"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller"),
+            @ApiResponse(responseCode = "409", description = "Concurrent modification"),
+            @ApiResponse(responseCode = "422", description = "Invalid update or destination")
+    })
     @PatchMapping("/{linkId}")
-    public ResponseEntity<Void> updateLink(@PathVariable Long linkId,
+    public ResponseEntity<LinkDetailResponse> updateLink(@PathVariable Long linkId,
             @RequestBody UpdateLinkRequest request) {
-        // TODO: verify ownership, then update only permitted properties.
-        return notImplemented();
+        Link link = linkService.updateOwnedLink(authenticatedOwnerId(), linkId, request);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(LinkDetailResponse.from(
+                        link, shortUrlBuilder.build(link.getShortCode()), clock.instant()));
     }
 
-    /** Delete or deactivate an owned link according to retention policy. */
+    /** Soft-delete an owned link; the short code stays reserved. */
+    @Operation(summary = "Delete an owned link",
+            description = "Reversible soft delete: the link is hidden from the dashboard and "
+                    + "redirects but its row and short code are retained.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Link deleted (idempotent)"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @DeleteMapping("/{linkId}")
     public ResponseEntity<Void> deleteLink(@PathVariable Long linkId) {
-        // TODO: verify ownership, then delete or deactivate per retention policy.
-        return notImplemented();
+        linkService.deleteOwnedLink(authenticatedOwnerId(), linkId);
+        return ResponseEntity.noContent().build();
     }
 
     /** Return authorized analytics for a link. */
@@ -161,6 +192,19 @@ public class LinkApiController {
     public ResponseEntity<Void> getQrCode(@PathVariable Long linkId) {
         // TODO: verify ownership and generate/return the QR code image.
         return notImplemented();
+    }
+
+    /**
+     * Ownership always comes from the authenticated principal. Spring Security
+     * rejects anonymous requests first; this guard also covers test/mock
+     * principals that carry no account id.
+     */
+    private Long authenticatedOwnerId() {
+        CallerContext caller = callerResolver.current();
+        if (caller == null || caller.userId() == null) {
+            throw new AccountUnavailableException();
+        }
+        return caller.userId();
     }
 
     private ResponseEntity<Void> notImplemented() {

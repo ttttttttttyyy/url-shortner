@@ -48,6 +48,8 @@ import com.url.shortly.validation.UrlValidator;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class LinkServiceImpTest {
 
+    private static final Instant FIXED_NOW = Instant.parse("2026-01-01T00:00:00Z");
+
     @Mock
     private LinkRepository linkRepository;
 
@@ -71,7 +73,7 @@ class LinkServiceImpTest {
                         new AppProperties.Plans.Plan(100, false, false, false, false),
                         new AppProperties.Plans.Plan(-1, true, true, true, true)),
                 null);
-        Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+        Clock clock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
         service = new LinkServiceImp(linkRepository, generator, urlValidator, properties, clock);
 
         when(linkRepository.saveAndFlush(any(Link.class)))
@@ -161,7 +163,7 @@ class LinkServiceImpTest {
     void pastExpiryIsRejected() {
         assertThatThrownBy(() -> service.createLink(
                 new CreateLinkRequest("https://example.com/x", null, null,
-                        Instant.now().minusSeconds(60)),
+                        FIXED_NOW.minusSeconds(60)),
                 CallerContext.guest()))
                 .isInstanceOf(InvalidExpiryException.class)
                 .hasMessageContaining("past");
@@ -170,7 +172,7 @@ class LinkServiceImpTest {
     @Test
     @DisplayName("an expiry beyond the configured maximum is rejected")
     void overlongExpiryIsRejected() {
-        Instant farFuture = Instant.now().plusSeconds(3650L * 24 * 3600 + 3600);
+        Instant farFuture = FIXED_NOW.plusSeconds(3650L * 24 * 3600 + 3600);
 
         assertThatThrownBy(() -> service.createLink(
                 new CreateLinkRequest("https://example.com/x", null, null, farFuture),

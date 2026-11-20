@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -79,6 +80,12 @@ class LinkDashboardIntegrationTest {
                         .value(hasItem(containsString("http://localhost:10004/dashown1"))))
                 .andExpect(jsonPath("$.items[?(@.shortCode == 'dashown1')].status")
                         .value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.shortCode == 'dashown1')].effectiveStatus")
+                        .value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.shortCode == 'dashown4')].status")
+                        .value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.shortCode == 'dashown4')].effectiveStatus")
+                        .value(hasItem("EXPIRED")))
                 .andExpect(jsonPath("$.items[?(@.shortCode == 'dashdel1')]").doesNotExist())
                 .andExpect(jsonPath("$.items[?(@.shortCode == 'dashoth1')]").doesNotExist())
                 .andExpect(jsonPath("$.items[?(@.shortCode == 'dashguest')]").doesNotExist())
@@ -157,7 +164,10 @@ class LinkDashboardIntegrationTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get(LINKS).header(HttpHeaders.AUTHORIZATION, "Bearer " + owner.token())
                         .param("status", "NOT_A_STATUS"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid request parameter"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/links"));
     }
 
     @Test

@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -53,8 +56,8 @@ import com.url.shortly.service.exeptions.ShortCodeConflictException;
 /**
  * Routing contract for the link management API (SoW section 7.2).
  *
- * <p>Creation and the dashboard list are implemented; the remaining handlers
- * are placeholders returning 501, so these tests pin paths, methods and errors.
+ * <p>Creation, dashboard, details, update and delete are implemented; the
+ * analytics and QR handlers are still placeholders returning 501.
  * When a handler is implemented, replace its {@code isNotImplemented()}
  * assertion with the real status (200 for reads, 204 for deletion, etc.).
  */
@@ -85,10 +88,14 @@ class LinkApiControllerTest {
     @MockitoBean
     private RateLimiter rateLimiter;
 
+    @MockitoBean
+    private Clock clock;
+
     @BeforeEach
     void defaultToGuestCallerWithoutRateLimitPolicies() {
         given(callerResolver.current()).willReturn(CallerContext.guest());
         given(rateLimitPolicyResolver.policiesFor(any(), any())).willReturn(List.of());
+        given(clock.instant()).willReturn(Instant.parse("2026-11-20T12:00:00Z"));
     }
 
     @Test
@@ -268,7 +275,8 @@ class LinkApiControllerTest {
         given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
         given(linkService.listOwnedLinks(eq(7L), eq(0), eq(20), eq(null)))
                 .willReturn(new OwnedLinks(List.of(), 0, 0,
-                        new OwnedLinks.UsageSummary(0, 0, 0, 0, 0, 0, 0, 100)));
+                        new OwnedLinks.UsageSummary(0, 0, 0, 0, 0, 0, 0, 100),
+                        Instant.now()));
 
         mockMvc.perform(get(LINKS))
                 .andExpect(status().isOk())
@@ -280,26 +288,74 @@ class LinkApiControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/links/{linkId} reads one link")
-    void getLinkIsNotImplementedYet() throws Exception {
+    @DisplayName("GET /api/v1/links/{linkId} reads one owned link")
+    void getLinkReturnsDetails() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        given(linkService.getOwnedLink(7L, 1L)).willReturn(persistedLink());
+        given(shortUrlBuilder.build("abc123")).willReturn("https://sho.rt/abc123");
+
         mockMvc.perform(get(LINKS + "/1"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.shortCode").value("abc123"))
+                .andExpect(jsonPath("$.shortUrl").value("https://sho.rt/abc123"))
+                .andExpect(jsonPath("$.destinationUrl").value("https://example.com/page"))
+                .andExpect(jsonPath("$.effectiveStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.passwordProtected").value(false));
+
+        verify(linkService).getOwnedLink(7L, 1L);
     }
 
     @Test
-    @DisplayName("PATCH /api/v1/links/{linkId} updates one link")
-    void updateLinkIsNotImplementedYet() throws Exception {
+    @DisplayName("PATCH /api/v1/links/{linkId} updates one owned link")
+    void updateLinkReturnsUpdatedDetails() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        given(linkService.updateOwnedLink(eq(7L), eq(1L), any())).willReturn(persistedLink());
+        given(shortUrlBuilder.build("abc123")).willReturn("https://sho.rt/abc123");
+
         mockMvc.perform(patch(LINKS + "/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"active\":false}"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shortCode").value("abc123"));
+
+        verify(linkService).updateOwnedLink(eq(7L), eq(1L), any());
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/links/{linkId} removes or deactivates a link")
-    void deleteLinkIsNotImplementedYet() throws Exception {
+    @DisplayName("PATCH /api/v1/links/{linkId} maps a stale update to 409 problem detail")
+    void staleUpdateReturnsConflict() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        given(linkService.updateOwnedLink(eq(7L), eq(1L), any()))
+                .willThrow(new OptimisticLockingFailureException("stale version"));
+
+        mockMvc.perform(patch(LINKS + "/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"active\":false}"))
+                .andExpect(status().isConflict())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Concurrent modification"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/links/1"));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/v1/links/{linkId} soft-deletes an owned link")
+    void deleteLinkReturnsNoContent() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+
         mockMvc.perform(delete(LINKS + "/1"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isNoContent());
+
+        verify(linkService).deleteOwnedLink(7L, 1L);
+    }
+
+    private static Link persistedLink() {
+        Link link = new Link();
+        link.setId(1L);
+        link.setShortCode("abc123");
+        link.setUrl("https://example.com/page");
+        return link;
     }
 
     @Test

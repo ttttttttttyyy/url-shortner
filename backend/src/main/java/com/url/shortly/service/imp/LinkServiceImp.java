@@ -11,9 +11,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.Repository.LinkRepository;
@@ -24,9 +26,13 @@ import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortCodeGenerator;
+import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
+import com.url.shortly.service.exeptions.InvalidLinkUpdateException;
+import com.url.shortly.service.exeptions.LinkNotFoundException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
+import com.url.shortly.service.exeptions.StatusChangeNotAllowedException;
 @Service 
 public class LinkServiceImp implements LinkService{
 
@@ -62,15 +68,16 @@ public class LinkServiceImp implements LinkService{
                         ownerId, LinkStatus.DELETED, pageable)
                 : linkRepository.findByOwnerIdAndStatus(ownerId, status, pageable);
 
+        Instant now = clock.instant();
         return new OwnedLinks(
                 result.getContent(),
                 result.getTotalElements(),
                 result.getTotalPages(),
-                usageSummary(ownerId));
+                usageSummary(ownerId, now),
+                now);
     }
 
-    private OwnedLinks.UsageSummary usageSummary(Long ownerId) {
-        Instant now = clock.instant();
+    private OwnedLinks.UsageSummary usageSummary(Long ownerId, Instant now) {
         Instant cutoff = now.minus(Duration.ofDays(SUMMARY_WINDOW_DAYS));
 
         List<Object[]> rows = linkRepository.usageSummary(
@@ -163,6 +170,91 @@ public class LinkServiceImp implements LinkService{
                 code -> insert(code, destination, caller.userId(), false, expiresAt));
         }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Link getOwnedLink(Long ownerId, Long linkId) {
+        return linkRepository.findByIdAndOwnerId(linkId, ownerId)
+                // Same predicate as FR-03 resolve(): a soft-deleted row is not
+                // a manageable link, whichever field recorded the deletion.
+                .filter(link -> link.getStatus() != LinkStatus.DELETED && link.getDeletedAt() == null)
+                .orElseThrow(LinkNotFoundException::new);
+    }
+
+    /**
+     * FR-07: only destination URL, expiry and the active/disabled switch are
+     * editable. Aliases (FR-08) and passwords (FR-13) are paid features and are
+     * rejected until their features ship; the short code itself is immutable.
+     * A BLOCKED link is administered by FR-16, so its status cannot be changed
+     * by the owner.
+     */
+    @Override
+    @Transactional
+    public Link updateOwnedLink(Long ownerId, Long linkId, UpdateLinkRequest request) {
+        Link link = getOwnedLink(ownerId, linkId);
+
+        // Validate everything before mutating the entity so a failed update
+        // cannot leave a half-applied change in the persistence context.
+        if (request.alias() != null) {
+            throw new AliasNotAllowedException("Custom aliases require the paid plan");
+        }
+        if (request.password() != null) {
+            throw new PasswordNotAllowedException("Password protection is not available yet");
+        }
+        if (request.url() != null && request.url().isBlank()) {
+            throw new InvalidLinkUpdateException("url must not be blank");
+        }
+        boolean clearExpiry = Boolean.TRUE.equals(request.clearExpiry());
+        if (clearExpiry && request.expiresAt() != null) {
+            throw new InvalidLinkUpdateException("expiresAt and clearExpiry are mutually exclusive");
+        }
+        if (request.active() != null && link.getStatus() == LinkStatus.BLOCKED) {
+            throw new StatusChangeNotAllowedException();
+        }
+
+        String destination = request.url() == null
+                ? null
+                : urlValidator.validateAndNormalize(request.url());
+        Instant expiresAt = request.expiresAt() == null
+                ? null
+                : validateRequestedExpiry(request.expiresAt());
+
+        if (destination == null && expiresAt == null && !clearExpiry && request.active() == null) {
+            throw new InvalidLinkUpdateException();
+        }
+
+        if (destination != null) {
+            link.setUrl(destination);
+        }
+        if (clearExpiry) {
+            link.setExpiresAt(null);
+        } else if (expiresAt != null) {
+            link.setExpiresAt(expiresAt);
+        }
+        if (request.active() != null) {
+            link.setStatus(request.active() ? LinkStatus.ACTIVE : LinkStatus.DISABLED);
+        }
+        return linkRepository.saveAndFlush(link);
+    }
+
+    /**
+     * FR-07: retention policy is not defined yet, so deletion is a reversible
+     * soft delete. The row is hidden from the dashboard and redirects, while
+     * the short code stays reserved and the audit trail is preserved.
+     */
+    @Override
+    @Transactional
+    public void deleteOwnedLink(Long ownerId, Long linkId) {
+        Link link = linkRepository.findByIdAndOwnerId(linkId, ownerId)
+                .orElseThrow(LinkNotFoundException::new);
+
+        if (link.getStatus() == LinkStatus.DELETED || link.getDeletedAt() != null) {
+            return;
+        }
+        link.setStatus(LinkStatus.DELETED);
+        link.setDeletedAt(clock.instant());
+        linkRepository.saveAndFlush(link);
+    }
+
     /**
      * Apply the configured expiration rules to a requested expiry.
      *
@@ -171,13 +263,22 @@ public class LinkServiceImp implements LinkService{
      * must be in the future and within {@code app.link.max-expiration-days}.
      */
     private Instant validateExpiry(Instant requested) {
-        AppProperties.Link config = properties.link();
-        Instant now = Instant.now();
-
         if (requested == null) {
-            int defaultDays = config.defaultExpirationDays();
-            return defaultDays <= 0 ? null : now.plus(Duration.ofDays(defaultDays));
+            int defaultDays = properties.link().defaultExpirationDays();
+            return defaultDays <= 0
+                    ? null
+                    : clock.instant().plus(Duration.ofDays(defaultDays));
         }
+        return validateRequestedExpiry(requested);
+    }
+
+    /**
+     * Validate an explicitly supplied expiry without applying the creation
+     * default — {@code null} in a PATCH means "leave unchanged".
+     */
+    private Instant validateRequestedExpiry(Instant requested) {
+        AppProperties.Link config = properties.link();
+        Instant now = clock.instant();
 
         if (requested.isBefore(now)) {
             throw new InvalidExpiryException("expiresAt must not be in the past");

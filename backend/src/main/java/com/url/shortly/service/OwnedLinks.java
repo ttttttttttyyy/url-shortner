@@ -1,5 +1,6 @@
 package com.url.shortly.service;
 
+import java.time.Instant;
 import java.util.List;
 
 import com.url.shortly.Entities.Link;
@@ -12,11 +13,14 @@ import com.url.shortly.Entities.Link;
  * @param totalElements  number of links matching the filter
  * @param totalPages     number of pages for that filter
  * @param usage          account-wide counts over all non-deleted links
+ * @param now            the application clock instant used for this read, so
+ *                       derived expiry in the response matches the summary
  */
 public record OwnedLinks(List<Link> links,
                          long totalElements,
                          int totalPages,
-                         UsageSummary usage) {
+                         UsageSummary usage,
+                         Instant now) {
 
     /** Counts the dashboard needs; no click metrics until FR-11 adds them. */
     public record UsageSummary(long totalLinks,

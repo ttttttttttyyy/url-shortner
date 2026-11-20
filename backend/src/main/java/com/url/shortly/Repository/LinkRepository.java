@@ -18,6 +18,9 @@ public interface LinkRepository extends JpaRepository<Link, Long> {
     boolean existsByShortCode(String shortCode);
     List<Link> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
 
+    /** Owner-scoped lookup for FR-07 details, updates and deletion. */
+    Optional<Link> findByIdAndOwnerId(Long id, Long ownerId);
+
     /** Dashboard list: all of an owner's non-deleted links, optionally one status. */
     Page<Link> findByOwnerIdAndStatusNot(
             Long ownerId, LinkStatus status, Pageable pageable);
