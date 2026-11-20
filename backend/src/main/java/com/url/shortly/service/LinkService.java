@@ -1,18 +1,24 @@
 package com.url.shortly.service;
 
-import java.util.ArrayList;
-
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.Entities.LinkStatus;
 
 /**
- * LinkService
- */ 
+ * Link creation, resolution and dashboard reads.
+ */
 public interface LinkService {
 
-    ArrayList<Link> getUserShortLinks();
-    
+    /**
+     * Read one page of links owned by {@code ownerId}, with account-wide usage
+     * counts. The owner id always comes from the authenticated principal, never
+     * from a request parameter.
+     *
+     * @param status optional status filter; {@code null} means every non-deleted link
+     */
+    OwnedLinks listOwnedLinks(Long ownerId, int page, int size, LinkStatus status);
+
     Link createLink(CreateLinkRequest request, CallerContext caller);
 
     /**

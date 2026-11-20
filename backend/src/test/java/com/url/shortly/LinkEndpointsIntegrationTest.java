@@ -182,10 +182,15 @@ class LinkEndpointsIntegrationTest {
     }
 
     @Test
-    @DisplayName("Authenticated Link API endpoints that are not implemented yet stay 501")
+    @DisplayName("GET /links serves an empty dashboard for an authenticated caller")
     void linkApiIsMounted() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(42L, PlanTier.FREE));
+
         mockMvc.perform(get("/api/v1/links").with(user("tester")))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.summary.totalLinks").value(0));
     }
 
     @Test

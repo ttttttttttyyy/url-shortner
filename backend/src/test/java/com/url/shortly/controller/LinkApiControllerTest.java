@@ -37,12 +37,14 @@ import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.enums.PlanTier;
 import com.url.shortly.ratelimit.ClientIpResolver;
 import com.url.shortly.ratelimit.RateLimitDecision;
 import com.url.shortly.ratelimit.RateLimitPolicy;
 import com.url.shortly.ratelimit.RateLimitPolicyResolver;
 import com.url.shortly.ratelimit.RateLimiter;
 import com.url.shortly.service.LinkService;
+import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortUrlBuilder;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidUrlException;
@@ -51,8 +53,8 @@ import com.url.shortly.service.exeptions.ShortCodeConflictException;
 /**
  * Routing contract for the link management API (SoW section 7.2).
  *
- * <p>Creation is implemented; the remaining handlers are placeholders
- * returning 501, so these tests pin paths, HTTP methods and error handling.
+ * <p>Creation and the dashboard list are implemented; the remaining handlers
+ * are placeholders returning 501, so these tests pin paths, methods and errors.
  * When a handler is implemented, replace its {@code isNotImplemented()}
  * assertion with the real status (200 for reads, 204 for deletion, etc.).
  */
@@ -262,9 +264,19 @@ class LinkApiControllerTest {
 
     @Test
     @DisplayName("GET /api/v1/links lists the caller's links")
-    void listLinksIsNotImplementedYet() throws Exception {
+    void listLinksReturnsTheDashboard() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        given(linkService.listOwnedLinks(eq(7L), eq(0), eq(20), eq(null)))
+                .willReturn(new OwnedLinks(List.of(), 0, 0,
+                        new OwnedLinks.UsageSummary(0, 0, 0, 0, 0, 0, 0, 100)));
+
         mockMvc.perform(get(LINKS))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.summary.totalLinks").value(0));
+
+        verify(linkService).listOwnedLinks(7L, 0, 20, null);
     }
 
     @Test

@@ -2,8 +2,11 @@ package com.url.shortly.controller;
 
 import java.net.URI;
 
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -15,17 +18,23 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.DTO.CreateLinkResponse;
+import com.url.shortly.DTO.LinkDashboardResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
+import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.ratelimit.RateLimitScope;
 import com.url.shortly.ratelimit.RateLimited;
 import com.url.shortly.service.LinkService;
+import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortUrlBuilder;
+import com.url.shortly.service.exeptions.AccountUnavailableException;
 
 import jakarta.validation.Valid;
 
@@ -36,6 +45,8 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/v1/links")
 public class LinkApiController {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     final LinkService linkService;
     final CallerResolver callerResolver;
@@ -76,11 +87,44 @@ public class LinkApiController {
                 .body(CreateLinkResponse.from(link, shortUrl));
     }
 
-    /** List the authenticated user's own links. */
+    /**
+     * Dashboard data: the caller's own links plus an account-wide usage
+     * summary. Ownership is taken from the authenticated principal; no client
+     * supplied id can widen the result.
+     */
+    @Operation(summary = "List the authenticated user's links",
+            description = "Newest first. The usage summary covers all non-deleted links "
+                    + "owned by the caller, independently of page and status filter.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Dashboard page"),
+            @ApiResponse(responseCode = "400", description = "Invalid page, size or status filter"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
     @GetMapping
-    public ResponseEntity<Void> getLinks() {
-        // TODO: return only the authenticated user's links.
-        return notImplemented();
+    public ResponseEntity<LinkDashboardResponse> getLinks(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "status", required = false) LinkStatus status) {
+
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "page must be >= 0 and size must be between 1 and " + MAX_PAGE_SIZE);
+        }
+        if (status == LinkStatus.DELETED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "deleted links are not listed; omit status to exclude them");
+        }
+
+        CallerContext caller = callerResolver.current();
+        if (caller == null || caller.userId() == null) {
+            throw new AccountUnavailableException();
+        }
+
+        OwnedLinks result = linkService.listOwnedLinks(caller.userId(), page, size, status);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.VARY, "Authorization")
+                .body(LinkDashboardResponse.from(result, page, size, shortUrlBuilder));
     }
 
     /** Read one owned link. */

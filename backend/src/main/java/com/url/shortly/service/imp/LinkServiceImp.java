@@ -1,10 +1,15 @@
 package com.url.shortly.service.imp;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.List;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import com.url.shortly.DTO.CallerContext;
@@ -17,6 +22,7 @@ import com.url.shortly.config.AppProperties;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
+import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortCodeGenerator;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
@@ -24,23 +30,75 @@ import com.url.shortly.service.exeptions.ShortCodeConflictException;
 @Service 
 public class LinkServiceImp implements LinkService{
 
+    private static final int SUMMARY_WINDOW_DAYS = 30;
+
     private final LinkRepository linkRepository;
     private final ShortCodeGenerator generator;
     final UrlValidator urlValidator;
     private final AppProperties properties;
+    private final Clock clock;
 
     public LinkServiceImp(LinkRepository linkRepository, ShortCodeGenerator shortCodeGenerator,
-                          UrlValidator urlValidator, AppProperties properties) {
+                          UrlValidator urlValidator, AppProperties properties, Clock clock) {
         this.linkRepository = linkRepository;
         this.generator = shortCodeGenerator;
         this.urlValidator = urlValidator;
         this.properties = properties;
+        this.clock = clock;
     }
 
+    /**
+     * FR-06: the dashboard read. Ownership is enforced by the query key, so
+     * another user's links can never appear even if a caller supplies an id.
+     * The summary is account-wide and independent of the status filter/page.
+     */
     @Override
-    public ArrayList<Link> getUserShortLinks() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'getUserShortLinks'");
+    public OwnedLinks listOwnedLinks(Long ownerId, int page, int size, LinkStatus status) {
+        Pageable pageable = PageRequest.of(page, size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+
+        Page<Link> result = status == null
+                ? linkRepository.findByOwnerIdAndStatusNot(
+                        ownerId, LinkStatus.DELETED, pageable)
+                : linkRepository.findByOwnerIdAndStatus(ownerId, status, pageable);
+
+        return new OwnedLinks(
+                result.getContent(),
+                result.getTotalElements(),
+                result.getTotalPages(),
+                usageSummary(ownerId));
+    }
+
+    private OwnedLinks.UsageSummary usageSummary(Long ownerId) {
+        Instant now = clock.instant();
+        Instant cutoff = now.minus(Duration.ofDays(SUMMARY_WINDOW_DAYS));
+
+        List<Object[]> rows = linkRepository.usageSummary(
+                ownerId,
+                LinkStatus.ACTIVE,
+                LinkStatus.DISABLED,
+                LinkStatus.BLOCKED,
+                LinkStatus.DELETED,
+                now,
+                cutoff);
+
+        if (rows.isEmpty()) {
+            return new OwnedLinks.UsageSummary(0, 0, 0, 0, 0, 0, 0, freeLinkLimit());
+        }
+
+        Object[] counts = rows.get(0);
+        return new OwnedLinks.UsageSummary(
+                number(counts[0]), number(counts[1]), number(counts[2]), number(counts[3]),
+                number(counts[4]), number(counts[5]), number(counts[6]), freeLinkLimit());
+    }
+
+    private int freeLinkLimit() {
+        AppProperties.Plans plans = properties.plans();
+        return plans == null || plans.free() == null ? 0 : plans.free().maxLinks();
+    }
+
+    private static long number(Object value) {
+        return value == null ? 0L : ((Number) value).longValue();
     }
 
     /**

@@ -9,7 +9,9 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -63,8 +65,14 @@ class LinkServiceImpTest {
                 "https://sho.rt",
                 null,
                 new AppProperties.Link(0, 3650, 30, null),
-                null, null, null, null);
-        service = new LinkServiceImp(linkRepository, generator, urlValidator, properties);
+                null,
+                null,
+                new AppProperties.Plans(
+                        new AppProperties.Plans.Plan(100, false, false, false, false),
+                        new AppProperties.Plans.Plan(-1, true, true, true, true)),
+                null);
+        Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+        service = new LinkServiceImp(linkRepository, generator, urlValidator, properties, clock);
 
         when(linkRepository.saveAndFlush(any(Link.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
