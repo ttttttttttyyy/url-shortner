@@ -28,6 +28,7 @@ public class RateLimitPolicyResolver {
     public static final String AUTH_REGISTER_IP = "auth-register-ip";
     public static final String AUTH_LOGIN_IP = "auth-login-ip";
     public static final String AUTH_LOGIN_ACCOUNT = "auth-login-account";
+    public static final String LINK_PASSWORD_VERIFY = "link-password-verify";
 
     private static final Duration DAILY_WINDOW = Duration.ofHours(24);
 
@@ -50,6 +51,8 @@ public class RateLimitPolicyResolver {
                     AUTH_REGISTER_IP, config.registrationAttempts(), config);
             case AUTH_LOGIN -> singlePolicy(
                     AUTH_LOGIN_IP, config.loginIpAttempts(), config);
+            case LINK_PASSWORD_VERIFY -> singlePolicy(
+                    LINK_PASSWORD_VERIFY, config.passwordVerification(), config);
         };
     }
 

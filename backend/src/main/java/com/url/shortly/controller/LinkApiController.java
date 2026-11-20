@@ -2,9 +2,11 @@ package com.url.shortly.controller;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,6 +32,8 @@ import com.url.shortly.DTO.CreateLinkRequest;
 import com.url.shortly.DTO.CreateLinkResponse;
 import com.url.shortly.DTO.LinkDashboardResponse;
 import com.url.shortly.DTO.LinkDetailResponse;
+import com.url.shortly.DTO.PasswordVerificationRequest;
+import com.url.shortly.DTO.PasswordVerificationResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
@@ -39,6 +43,7 @@ import com.url.shortly.ratelimit.RateLimitScope;
 import com.url.shortly.ratelimit.RateLimited;
 import com.url.shortly.service.AdvancedAnalyticsService;
 import com.url.shortly.service.ClickAnalyticsService;
+import com.url.shortly.service.LinkPasswordService;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortUrlBuilder;
@@ -62,19 +67,21 @@ public class LinkApiController {
     final ShortUrlBuilder shortUrlBuilder;
     final ClickAnalyticsService clickAnalytics;
     final AdvancedAnalyticsService advancedAnalytics;
+    final LinkPasswordService linkPasswords;
     final AppProperties properties;
     final Clock clock;
 
     LinkApiController(LinkService linkService, CallerResolver callerResolver,
                       ShortUrlBuilder shortUrlBuilder, ClickAnalyticsService clickAnalytics,
-                      AdvancedAnalyticsService advancedAnalytics, AppProperties properties,
-                      Clock clock) {
+                      AdvancedAnalyticsService advancedAnalytics, LinkPasswordService linkPasswords,
+                      AppProperties properties, Clock clock) {
 
         this.linkService = linkService;
         this.callerResolver = callerResolver;
         this.shortUrlBuilder = shortUrlBuilder;
         this.clickAnalytics = clickAnalytics;
         this.advancedAnalytics = advancedAnalytics;
+        this.linkPasswords = linkPasswords;
         this.properties = properties;
         this.clock = clock;
     }
@@ -193,6 +200,48 @@ public class LinkApiController {
     public ResponseEntity<Void> deleteLink(@PathVariable Long linkId) {
         linkService.deleteOwnedLink(authenticatedCaller().userId(), linkId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Visitor password check for a protected link (FR-13). Public route: no
+     * account is required. Success returns a short-lived, link-scoped token
+     * that can be sent as {@code ?access=...} on the public short URL.
+     */
+    @Operation(summary = "Verify a link password",
+            description = "Returns a short-lived token bound to this link and sets an "
+                    + "HttpOnly cookie scoped to its public path.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password accepted"),
+            @ApiResponse(responseCode = "400", description = "Link has no password"),
+            @ApiResponse(responseCode = "401", description = "Incorrect password"),
+            @ApiResponse(responseCode = "404", description = "Unknown short code"),
+            @ApiResponse(responseCode = "422", description = "Link not currently verifiable"),
+            @ApiResponse(responseCode = "429", description = "Too many attempts")
+    })
+    @RateLimited(RateLimitScope.LINK_PASSWORD_VERIFY)
+    @PostMapping("/{shortCode}/verify")
+    public ResponseEntity<PasswordVerificationResponse> verifyPassword(
+            @PathVariable String shortCode,
+            @Valid @RequestBody PasswordVerificationRequest request) {
+
+        LinkPasswordService.VerificationResult result =
+                linkPasswords.verify(shortCode, request.password());
+
+        ResponseCookie cookie = ResponseCookie.from("SHORTLY_LINK_ACCESS", result.token())
+                .httpOnly(true)
+                .secure(properties.security().auth().refreshCookieSecure())
+                .path("/" + shortCode)
+                .sameSite("Lax")
+                .maxAge(Duration.ofSeconds(result.expiresInSeconds()))
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .cacheControl(CacheControl.noStore())
+                .body(new PasswordVerificationResponse(
+                        result.token(),
+                        shortUrlBuilder.build(shortCode) + "?access=" + result.token(),
+                        result.expiresInSeconds()));
     }
 
     /** Return basic analytics for a link the caller owns (FR-09). */

@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortCodeGenerator;
 import com.url.shortly.service.exeptions.InvalidAliasException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
+import com.url.shortly.service.exeptions.InvalidLinkPasswordException;
 import com.url.shortly.service.exeptions.InvalidLinkUpdateException;
 import com.url.shortly.service.exeptions.LinkNotFoundException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
@@ -43,14 +45,17 @@ public class LinkServiceImp implements LinkService{
     final UrlValidator urlValidator;
     private final AppProperties properties;
     private final Clock clock;
+    private final PasswordEncoder passwordEncoder;
 
     public LinkServiceImp(LinkRepository linkRepository, ShortCodeGenerator shortCodeGenerator,
-                          UrlValidator urlValidator, AppProperties properties, Clock clock) {
+                          UrlValidator urlValidator, AppProperties properties, Clock clock,
+                          PasswordEncoder passwordEncoder) {
         this.linkRepository = linkRepository;
         this.generator = shortCodeGenerator;
         this.urlValidator = urlValidator;
         this.properties = properties;
         this.clock = clock;
+        this.passwordEncoder = passwordEncoder;
     }
 
     /**
@@ -144,17 +149,13 @@ public class LinkServiceImp implements LinkService{
 
     @Override
     public Link createLink(CreateLinkRequest request, CallerContext caller) {
+        String passwordHash = null;
         if (request.password() != null) {
-            // SoW feature matrix: password-protected links are a paid entitlement,
-            // not available to guests or free users.
+            // Password protection is a paid entitlement (SoW feature matrix).
             if (caller.tier() != PlanTier.PAID) {
                 throw new PasswordNotAllowedException("Password-protected links require the paid plan");
             }
-            // FR-13 is not implemented yet; never store an unhashed password.
-            // Temporary mapping choice: 403 keeps a single status for "you cannot
-            // have this feature"; 501 Not Implemented would also be defensible
-            // for the paid tier. Revisit when FR-13 lands.
-            throw new PasswordNotAllowedException("Password protection is not available yet");
+            passwordHash = hashPassword(request.password());
         }
 
         String destination = urlValidator.validateAndNormalize(request.url());
@@ -166,11 +167,12 @@ public class LinkServiceImp implements LinkService{
                 throw new InvalidAliasException("Alias must not be blank");
             }
             generator.validateCustomAlias(alias, caller.tier());
-            return insert(alias, destination, caller.userId(), true, expiresAt);
+            return insert(alias, destination, caller.userId(), true, expiresAt, passwordHash);
         }
 
+        final String hashedPassword = passwordHash;
         return generator.generateAndPersist(caller.tier(),
-                code -> insert(code, destination, caller.userId(), false, expiresAt));
+                code -> insert(code, destination, caller.userId(), false, expiresAt, hashedPassword));
         }
 
     @Override
@@ -215,8 +217,16 @@ public class LinkServiceImp implements LinkService{
                 throw new ShortCodeConflictException("Short code already taken: " + alias);
             }
         }
+        boolean clearPassword = Boolean.TRUE.equals(request.clearPassword());
+        if (request.password() != null && clearPassword) {
+            throw new InvalidLinkUpdateException("password and clearPassword are mutually exclusive");
+        }
+        String passwordHash = null;
+        if (request.password() != null && caller.tier() != PlanTier.PAID) {
+            throw new PasswordNotAllowedException("Password-protected links require the paid plan");
+        }
         if (request.password() != null) {
-            throw new PasswordNotAllowedException("Password protection is not available yet");
+            passwordHash = hashPassword(request.password());
         }
         if (request.url() != null && request.url().isBlank()) {
             throw new InvalidLinkUpdateException("url must not be blank");
@@ -236,8 +246,8 @@ public class LinkServiceImp implements LinkService{
                 ? null
                 : validateRequestedExpiry(request.expiresAt(), caller.tier());
 
-        if (destination == null && expiresAt == null && !clearExpiry
-                && request.active() == null && !aliasChange) {
+        if (destination == null && expiresAt == null && !clearExpiry && !clearPassword
+                && passwordHash == null && request.active() == null && !aliasChange) {
             throw new InvalidLinkUpdateException();
         }
 
@@ -255,6 +265,11 @@ public class LinkServiceImp implements LinkService{
         }
         if (request.active() != null) {
             link.setStatus(request.active() ? LinkStatus.ACTIVE : LinkStatus.DISABLED);
+        }
+        if (clearPassword) {
+            link.setPasswordHash(null);
+        } else if (passwordHash != null) {
+            link.setPasswordHash(passwordHash);
         }
 
         try {
@@ -334,6 +349,16 @@ public class LinkServiceImp implements LinkService{
         return requested;
     }
 
+    private String hashPassword(String rawPassword) {
+        if (rawPassword == null || rawPassword.isBlank()) {
+            throw new InvalidLinkPasswordException("Password must not be blank");
+        }
+        if (rawPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 128) {
+            throw new InvalidLinkPasswordException("Password must be at most 128 bytes");
+        }
+        return passwordEncoder.encode(rawPassword);
+    }
+
     private int maxExpiryDays(PlanTier tier) {
         AppProperties.Link config = properties.link();
         if (tier != PlanTier.GUEST) {
@@ -344,7 +369,7 @@ public class LinkServiceImp implements LinkService{
                 : config.maxExpirationDays();
     }
     private Link insert(String code, String destination, Long ownerId,
-                        boolean customAlias, Instant expiresAt) {
+                        boolean customAlias, Instant expiresAt, String passwordHash) {
         Link link = new Link();
         link.setShortCode(code);
         link.setUrl(destination);
@@ -352,6 +377,7 @@ public class LinkServiceImp implements LinkService{
         link.setStatus(LinkStatus.ACTIVE);
         link.setCustomAlias(customAlias);
         link.setExpiresAt(expiresAt);
+        link.setPasswordHash(passwordHash);
 
         try {
             return linkRepository.saveAndFlush(link);

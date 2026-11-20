@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CreateLinkRequest;
@@ -60,6 +61,9 @@ class LinkServiceImpTest {
     @Mock
     private UrlValidator urlValidator;
 
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
     private LinkServiceImp service;
 
     @BeforeEach
@@ -75,7 +79,8 @@ class LinkServiceImpTest {
                         new AppProperties.Plans.Plan(-1, true, true, true, true)),
                 null);
         Clock clock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
-        service = new LinkServiceImp(linkRepository, generator, urlValidator, properties, clock);
+        service = new LinkServiceImp(
+                linkRepository, generator, urlValidator, properties, clock, passwordEncoder);
 
         when(linkRepository.saveAndFlush(any(Link.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -183,6 +188,20 @@ class LinkServiceImpTest {
     }
 
     @Test
+    @DisplayName("a paid caller's password is stored only as a bcrypt hash")
+    void paidPasswordIsHashed() {
+        when(generator.generateAndPersist(eq(PlanTier.PAID), any()))
+                .thenAnswer(inv -> persistCaptured(inv.getArgument(1), "paidpw1"));
+        when(passwordEncoder.encode("secret-password")).thenReturn("$2a$hashed");
+
+        Link link = service.createLink(
+                new CreateLinkRequest("https://example.com/x", null, "secret-password", null),
+                new CallerContext(1L, PlanTier.PAID));
+
+        assertThat(link.getPasswordHash()).isEqualTo("$2a$hashed");
+    }
+
+    @Test
     @DisplayName("guest expiry is capped at the configured retention window")
     void guestExpiryIsCapped() {
         Instant withinWindow = FIXED_NOW.plus(Duration.ofDays(30));
@@ -213,13 +232,13 @@ class LinkServiceImpTest {
     }
 
     @Test
-    @DisplayName("FR-13 is not implemented: even paid callers cannot set a password yet")
-    void passwordNotYetAvailableForPaid() {
+    @DisplayName("a blank password is rejected even for paid callers")
+    void blankPasswordIsRejected() {
         assertThatThrownBy(() -> service.createLink(
-                new CreateLinkRequest("https://example.com/x", null, "longenough1", null),
+                new CreateLinkRequest("https://example.com/x", null, "   ", null),
                 new CallerContext(7L, PlanTier.PAID)))
-                .isInstanceOf(PasswordNotAllowedException.class)
-                .hasMessageContaining("not available yet");
+                .isInstanceOf(com.url.shortly.service.exeptions.InvalidLinkPasswordException.class)
+                .hasMessageContaining("blank");
     }
 
     @Test

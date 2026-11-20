@@ -92,7 +92,7 @@ Successful responses carry `Cache-Control: no-store`.
 
 - **FR-10:** geography, device, OS, browser and referrer breakdowns.
 - **FR-12:** retention purge of old click rows.
-- **FR-13:** password gate (excluded from eligibility until implemented).
+- **FR-13:** implemented — a protected link records a click only after password verification and redirect.
 - **FR-19:** high-volume aggregation and shared analytics storage.
 
 ## Test coverage

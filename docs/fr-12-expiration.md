@@ -65,7 +65,7 @@ Owners can still read, edit and delete expired links; only redirection stops.
 
 ## Out of scope
 
-- **FR-13:** password gate (expiry still wins over password per FR-03).
+- **FR-13:** implemented — expiry still wins over the password gate per FR-03.
 - **FR-14:** ad interstitial.
 - **FR-19:** per-plan expiry entitlements and quotas.
 

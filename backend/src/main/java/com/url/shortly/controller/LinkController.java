@@ -17,9 +17,12 @@ import com.url.shortly.ratelimit.ClientIpResolver;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.ClickMetadata;
 import com.url.shortly.service.GeoResolver;
+import com.url.shortly.service.LinkPasswordService;
 import com.url.shortly.service.LinkResolution;
+import com.url.shortly.service.LinkResolution.Outcome;
 import com.url.shortly.service.LinkService;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -46,15 +49,19 @@ public class LinkController {
     private final ClickAnalyticsService clickAnalytics;
     private final ClientIpResolver clientIpResolver;
     private final GeoResolver geoResolver;
+    private final LinkPasswordService linkPasswords;
+    private static final String ACCESS_PARAM = "access";
+    private static final String ACCESS_COOKIE = "SHORTLY_LINK_ACCESS";
 
     LinkController(LinkService linkService, LinkStatusPage statusPage,
                    ClickAnalyticsService clickAnalytics, ClientIpResolver clientIpResolver,
-                   GeoResolver geoResolver) {
+                   GeoResolver geoResolver, LinkPasswordService linkPasswords) {
         this.linkService = linkService;
         this.statusPage = statusPage;
         this.clickAnalytics = clickAnalytics;
         this.clientIpResolver = clientIpResolver;
         this.geoResolver = geoResolver;
+        this.linkPasswords = linkPasswords;
     }
 
     @Operation(summary = "Resolve a short link",
@@ -71,6 +78,14 @@ public class LinkController {
     public ResponseEntity<?> resolveShortLink(@PathVariable String shortCode,
                                               HttpServletRequest request) {
         LinkResolution resolution = linkService.resolve(shortCode);
+
+        // A valid link-access token only overrides PASSWORD_REQUIRED. Every
+        // other status (deleted, blocked, disabled, expired) still wins.
+        if (resolution.outcome() == Outcome.PASSWORD_REQUIRED
+                && linkPasswords.tokenValid(accessToken(request), resolution.link())) {
+            resolution = new LinkResolution(resolution.link(), Outcome.ACTIVE);
+        }
+
         if (!resolution.redirects()) {
             return statusPage.render(resolution.outcome());
         }
@@ -106,5 +121,22 @@ public class LinkController {
                 .header("Referrer-Policy", "no-referrer")
                 .header("X-Robots-Tag", "noindex")
                 .build();
+    }
+
+    /** Token from the query string (portable) or the scoped HttpOnly cookie. */
+    private static String accessToken(HttpServletRequest request) {
+        String token = request.getParameter(ACCESS_PARAM);
+        if (token != null && !token.isBlank()) {
+            return token;
+        }
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (ACCESS_COOKIE.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
     }
 }

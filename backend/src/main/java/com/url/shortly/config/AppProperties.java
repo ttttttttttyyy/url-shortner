@@ -58,7 +58,8 @@ public record AppProperties(
 				@DefaultValue("shortly-web") String audience,
 				String secret,
 				@DefaultValue("15m") Duration accessTokenTtl,
-				@DefaultValue("7d") Duration refreshTokenTtl) {
+				@DefaultValue("7d") Duration refreshTokenTtl,
+				@DefaultValue("30m") Duration linkAccessTokenTtl) {
 		}
 
 		public record Cors(

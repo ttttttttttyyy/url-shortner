@@ -44,7 +44,7 @@ and add a regression test for `expired + passwordHash -> EXPIRED`.
 | `DELETED` | `410 Gone` | Static status page |
 | `DISABLED` | `403 Forbidden` | Static status page |
 | `BLOCKED` | `403 Forbidden` | Static status page |
-| `PASSWORD_REQUIRED` | `401 Unauthorized` | Placeholder page; FR-13 replaces it |
+| `PASSWORD_REQUIRED` | `401 Unauthorized` | Password-required page; verify via `POST /api/v1/links/{shortCode}/verify` |
 
 `302` is deliberate: `301` is cached permanently by browsers and proxies and
 would keep serving a redirect after the link is deleted, blocked or expired.
@@ -70,11 +70,13 @@ the page does not mention moderation or the destination. The alternative
 (collapse every non-active outcome to `404`) was rejected because it would make
 `410 Gone` for expiry/deletion indistinguishable from a typo.
 
-### `PASSWORD_REQUIRED -> 401` is a placeholder
+### `PASSWORD_REQUIRED -> 401`
 
 A bare `401` normally carries `WWW-Authenticate`. Adding it would trigger a
-native browser credential dialog, which is not the intended UX. The page is a
-documented seam; FR-13 replaces it with a password form and its own challenge.
+native browser credential dialog, which is not the intended UX. FR-13 keeps
+this page and adds `POST /api/v1/links/{shortCode}/verify`, which returns a
+short-lived token; `GET /{shortCode}?access=<token>` then follows the redirect
+branch below. Expiry still wins over password.
 
 ### Trailing slash is not a short code
 
@@ -128,8 +130,8 @@ response is returned.
   access log after the gate checks) and Shlink (trackIfApplicable after
   resolution) put it. Password pages, blocked/disabled/expired pages and unknown
   codes must not count.
-- **FR-13 password:** replace the `401` page with a form, verify the hash, then
-  continue to the redirect branch. Preserve expiry-before-password.
+- **FR-13 password (implemented):** verify via the API endpoint, then pass the
+  returned token on the public redirect. Expiry-before-password is preserved.
 - **FR-14 ad interstitial:** insert the interstitial between `ACTIVE` and the
   redirect for eligible free links. Paid links bypass it.
 - **FR-16 moderation:** the admin action sets `status = BLOCKED`; this policy

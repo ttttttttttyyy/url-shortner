@@ -51,6 +51,7 @@ import com.url.shortly.ratelimit.RateLimiter;
 import com.url.shortly.service.AdvancedAnalyticsService;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.LinkAdvancedAnalytics;
+import com.url.shortly.service.LinkPasswordService;
 import com.url.shortly.service.LinkAnalytics;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
@@ -105,6 +106,9 @@ class LinkApiControllerTest {
 
     @MockitoBean
     private AppProperties appProperties;
+
+    @MockitoBean
+    private LinkPasswordService linkPasswords;
 
     @BeforeEach
     void defaultToGuestCallerWithoutRateLimitPolicies() {

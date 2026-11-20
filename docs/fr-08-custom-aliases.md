@@ -64,8 +64,7 @@ and update (`422`) rather than silently becoming a generated code.
 Other editable fields (`url`, `expiresAt`, `clearExpiry`, `active`) and their
 status/moderation rules remain as documented in `fr-07-link-management.md`.
 Alias, URL and status changes in one PATCH are a single transaction: if the
-alias is taken, none of the other fields are applied. Passwords are still
-reserved for FR-13.
+alias is taken, none of the other fields are applied.
 
 ## Decisions
 
@@ -90,7 +89,7 @@ reserved for FR-13.
 ## Out of scope / seams
 
 - **FR-15:** subscriptions, checkout and the real tier source.
-- **FR-13:** password-protected links.
+- **FR-13:** implemented — password-protected links.
 - **FR-16:** admin moderation of aliases and links. Today blocking is a status
   on the link, so renaming a blocked link still resolves to the blocked page.
   If FR-16 ever blocks a *specific alias*, rename would become an evasion route

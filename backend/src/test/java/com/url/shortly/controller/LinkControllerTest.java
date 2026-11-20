@@ -25,6 +25,7 @@ import com.url.shortly.ratelimit.RateLimitPolicyResolver;
 import com.url.shortly.ratelimit.RateLimiter;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.GeoResolver;
+import com.url.shortly.service.LinkPasswordService;
 import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkResolution.Outcome;
 import com.url.shortly.service.LinkService;
@@ -58,6 +59,9 @@ class LinkControllerTest {
 
     @MockitoBean
     private GeoResolver geoResolver;
+
+    @MockitoBean
+    private LinkPasswordService linkPasswords;
 
     @MockitoBean
     private RateLimitPolicyResolver rateLimitPolicyResolver;

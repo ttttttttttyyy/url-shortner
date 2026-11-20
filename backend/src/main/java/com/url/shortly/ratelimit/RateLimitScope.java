@@ -12,7 +12,8 @@ public enum RateLimitScope {
 
     LINK_CREATION(true),
     AUTH_REGISTRATION(false),
-    AUTH_LOGIN(false);
+    AUTH_LOGIN(false),
+    LINK_PASSWORD_VERIFY(false);
 
     private final boolean userKeyed;
 

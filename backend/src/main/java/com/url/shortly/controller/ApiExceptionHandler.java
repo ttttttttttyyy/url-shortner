@@ -20,12 +20,16 @@ import com.url.shortly.service.exeptions.AccountUnavailableException;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.EmailAlreadyRegisteredException;
 import com.url.shortly.service.exeptions.InvalidAliasException;
+import com.url.shortly.service.exeptions.IncorrectLinkPasswordException;
 import com.url.shortly.service.exeptions.InvalidCredentialsException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
+import com.url.shortly.service.exeptions.InvalidLinkPasswordException;
 import com.url.shortly.service.exeptions.InvalidLinkUpdateException;
 import com.url.shortly.service.exeptions.InvalidPasswordException;
 import com.url.shortly.service.exeptions.InvalidUrlException;
+import com.url.shortly.service.exeptions.LinkNotProtectedException;
 import com.url.shortly.service.exeptions.LinkNotFoundException;
+import com.url.shortly.service.exeptions.LinkNotVerifiableException;
 import com.url.shortly.service.exeptions.PasswordNotAllowedException;
 import com.url.shortly.service.exeptions.RateLimitExceededException;
 import com.url.shortly.service.exeptions.ShortCodeConflictException;
@@ -92,6 +96,28 @@ public class ApiExceptionHandler {
                                                      HttpServletRequest request) {
         return problemResponse(
                 HttpStatus.UNPROCESSABLE_ENTITY, "Invalid link update", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidLinkPasswordException.class)
+    ProblemDetail invalidLinkPassword(InvalidLinkPasswordException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid link password", ex.getMessage());
+    }
+
+    @ExceptionHandler(LinkNotProtectedException.class)
+    ProblemDetail linkNotProtected(LinkNotProtectedException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Link not protected", ex.getMessage());
+    }
+
+    @ExceptionHandler(LinkNotVerifiableException.class)
+    ProblemDetail linkNotVerifiable(LinkNotVerifiableException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Link not verifiable", ex.getMessage());
+    }
+
+    @ExceptionHandler(IncorrectLinkPasswordException.class)
+    ResponseEntity<ProblemDetail> incorrectLinkPassword(
+            IncorrectLinkPasswordException ex, HttpServletRequest request) {
+        return problemResponse(HttpStatus.UNAUTHORIZED, "Incorrect password",
+                ex.getMessage(), request);
     }
 
     @ExceptionHandler(StatusChangeNotAllowedException.class)

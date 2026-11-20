@@ -47,7 +47,8 @@ enumerating which link ids exist.
 | `clearExpiry` | `true` explicitly clears the expiry; mutually exclusive with `expiresAt` → `422` otherwise |
 | `active` | `false` → `DISABLED`, `true` → `ACTIVE`. An expired `ACTIVE` link is still expired at redirect time, but `DISABLED` and `BLOCKED` win over expiry (FR-03 precedence). Changing `active` on a `BLOCKED` link is rejected with `403` |
 | `alias` | Paid callers may claim or rename a custom alias (FR-08); everyone else gets `403`, blank values get `422`. The code stays bound to the same link id |
-| `password` | Rejected with `403` until FR-13 implements paid password protection |
+| `password` | Paid callers set a bcrypt-hashed link password; others get `403`. Blank → `400` |
+| `clearPassword` | `true` removes the password; mutually exclusive with `password` → `422` |
 | no fields | `422 Invalid link update` |
 
 A disallowed field is checked before any mutation, so a rejected PATCH cannot
@@ -86,7 +87,7 @@ FR-12 settles it, purging can be added without changing this API.
 - **FR-08:** custom aliases (including renaming an existing link).
 - **FR-09/FR-10:** per-link analytics and paid breakdowns.
 - **FR-12:** retention enforcement and purge jobs.
-- **FR-13:** password protection.
+- **FR-13:** implemented — password protection and visitor verification.
 - **FR-16:** admin moderation, `BLOCKED` status and any owner override.
 
 ## Test coverage
