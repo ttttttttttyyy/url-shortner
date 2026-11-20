@@ -134,6 +134,10 @@ app:
     max-length: ${SHORT_CODE_MAX_LENGTH:32}
     alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     max-generation-attempts: ${SHORT_CODE_MAX_ATTEMPTS:10}
+    # Entries containing dots (favicon.ico, robots.txt, sitemap.xml) are public
+    # routes shielded by the short-code path guard; the alias format forbids
+    # dots, so they can never be claimed as aliases. They are listed here so
+    # generated candidates are never compared against those route names.
     reserved-aliases:
       - api
       - admin

@@ -26,7 +26,6 @@ import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortCodeGenerator;
-import com.url.shortly.service.exeptions.AliasNotAllowedException;
 import com.url.shortly.service.exeptions.InvalidAliasException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
 import com.url.shortly.service.exeptions.InvalidLinkUpdateException;
@@ -208,9 +207,8 @@ public class LinkServiceImp implements LinkService{
             throw new InvalidLinkUpdateException("alias must not be blank");
         }
         if (aliasChange) {
-            if (caller.tier() != PlanTier.PAID) {
-                throw new AliasNotAllowedException("Custom aliases require the paid plan");
-            }
+            // validateCustomAlias enforces the paid-tier entitlement as well as
+            // format/length/reserved words, so there is one gate, not two.
             generator.validateCustomAlias(alias, caller.tier());
             if (!alias.equals(link.getShortCode())
                     && linkRepository.existsByShortCode(alias)) {

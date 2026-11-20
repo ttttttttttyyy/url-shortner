@@ -23,6 +23,7 @@ import com.url.shortly.Entities.Link;
 import com.url.shortly.ratelimit.ClientIpResolver;
 import com.url.shortly.ratelimit.RateLimitPolicyResolver;
 import com.url.shortly.ratelimit.RateLimiter;
+import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkResolution.Outcome;
 import com.url.shortly.service.LinkService;
@@ -50,6 +51,9 @@ class LinkControllerTest {
 
     @MockitoBean
     private ClientIpResolver clientIpResolver;
+
+    @MockitoBean
+    private ClickAnalyticsService clickAnalytics;
 
     @MockitoBean
     private RateLimitPolicyResolver rateLimitPolicyResolver;

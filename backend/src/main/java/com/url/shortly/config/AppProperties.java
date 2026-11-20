@@ -114,6 +114,11 @@ public record AppProperties(
 			Plan free,
 			Plan paid) {
 
+		/**
+		 * Descriptive capabilities of a plan. FR-08/FR-13 enforce entitlement
+		 * from the signed tier claim; FR-15 will connect these flags to the
+		 * resolved subscription instead of creating a second gate.
+		 */
 		public record Plan(
 				int maxLinks,
 				boolean customAliases,

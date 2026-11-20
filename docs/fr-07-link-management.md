@@ -46,7 +46,7 @@ enumerating which link ids exist.
 | `expiresAt` | Must be in the future and within `app.link.max-expiration-days` → `422` on failure. `null` means "leave unchanged" |
 | `clearExpiry` | `true` explicitly clears the expiry; mutually exclusive with `expiresAt` → `422` otherwise |
 | `active` | `false` → `DISABLED`, `true` → `ACTIVE`. An expired `ACTIVE` link is still expired at redirect time, but `DISABLED` and `BLOCKED` win over expiry (FR-03 precedence). Changing `active` on a `BLOCKED` link is rejected with `403` |
-| `alias` | Any non-null value (including blank) is rejected with `403` until FR-08 implements paid custom aliases. The short code is immutable |
+| `alias` | Paid callers may claim or rename a custom alias (FR-08); everyone else gets `403`, blank values get `422`. The code stays bound to the same link id |
 | `password` | Rejected with `403` until FR-13 implements paid password protection |
 | no fields | `422 Invalid link update` |
 

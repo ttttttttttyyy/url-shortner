@@ -19,9 +19,9 @@ import org.junit.jupiter.api.Test;
  * Runs the real Flyway migrations against H2 in PostgreSQL mode.
  *
  * <p>The application test profile uses {@code ddl-auto: create-drop} so it does
- * not exercise the migration files. This test closes that gap: it applies V1
- * and V2, then checks the identity schema, the email uniqueness constraint, the
- * refresh-token uniqueness constraint and both foreign-key actions.
+ * not exercise the migration files. This test closes that gap: it applies V1,
+ * V2 and V3, then checks the identity/analytics schema, uniqueness constraints
+ * and the foreign-key actions for users, sessions and clicks.
  */
 class FlywayMigrationTest {
 
@@ -29,7 +29,7 @@ class FlywayMigrationTest {
             "jdbc:h2:mem:shortly_migrations;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
 
     @Test
-    @DisplayName("V1 and V2 apply cleanly and enforce the identity constraints")
+    @DisplayName("V1, V2 and V3 apply cleanly and enforce the identity constraints")
     void migrationsApplyCleanly() throws Exception {
         MigrateResult result = Flyway.configure()
                 .dataSource(URL, "sa", "")
@@ -37,10 +37,10 @@ class FlywayMigrationTest {
                 .load()
                 .migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(2);
+        assertThat(result.migrationsExecuted).isEqualTo(3);
 
         try (Connection connection = DriverManager.getConnection(URL, "sa", "")) {
-            assertThat(appliedMigrations(connection)).isEqualTo(2);
+            assertThat(appliedMigrations(connection)).isEqualTo(3);
 
             long userId = insertUser(connection, "migration@example.com");
 
@@ -56,7 +56,8 @@ class FlywayMigrationTest {
                     insertSession(connection, userId, "a".repeat(64), "family-2"))
                     .isInstanceOf(SQLException.class);
 
-            insertLink(connection, "migrate1", userId);
+            long linkId = insertLink(connection, "migrate1", userId);
+            insertClick(connection, linkId);
 
             try (PreparedStatement delete = connection.prepareStatement(
                     "DELETE FROM app_user WHERE id = ?")) {
@@ -75,6 +76,18 @@ class FlywayMigrationTest {
             // ON DELETE CASCADE for refresh sessions.
             try (Statement statement = connection.createStatement();
                  ResultSet rs = statement.executeQuery("SELECT COUNT(*) FROM auth_session")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).isZero();
+            }
+
+            // Deleting the link removes its click history with it.
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM link WHERE id = ?")) {
+                delete.setLong(1, linkId);
+                delete.executeUpdate();
+            }
+            try (Statement statement = connection.createStatement();
+                 ResultSet rs = statement.executeQuery("SELECT COUNT(*) FROM click_event")) {
                 assertThat(rs.next()).isTrue();
                 assertThat(rs.getInt(1)).isZero();
             }
@@ -129,7 +142,7 @@ class FlywayMigrationTest {
         }
     }
 
-    private static void insertLink(Connection connection, String shortCode, long ownerId)
+    private static long insertLink(Connection connection, String shortCode, long ownerId)
             throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
                 """
@@ -138,9 +151,26 @@ class FlywayMigrationTest {
                      created_at, updated_at)
                 VALUES (?, 'https://example.com/owned', ?, 'ACTIVE', FALSE,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """)) {
+                """,
+                Statement.RETURN_GENERATED_KEYS)) {
             insert.setString(1, shortCode);
             insert.setLong(2, ownerId);
+            insert.executeUpdate();
+            try (ResultSet keys = insert.getGeneratedKeys()) {
+                assertThat(keys.next()).isTrue();
+                return keys.getLong(1);
+            }
+        }
+    }
+
+    private static void insertClick(Connection connection, long linkId) throws SQLException {
+        try (PreparedStatement insert = connection.prepareStatement(
+                """
+                INSERT INTO click_event (link_id, occurred_at, visitor_hash)
+                VALUES (?, CURRENT_TIMESTAMP, ?)
+                """)) {
+            insert.setLong(1, linkId);
+            insert.setString(2, "a".repeat(64));
             insert.executeUpdate();
         }
     }

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.url.shortly.DTO.AnalyticsResponse;
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
@@ -33,6 +34,7 @@ import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
 import com.url.shortly.ratelimit.RateLimitScope;
 import com.url.shortly.ratelimit.RateLimited;
+import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortUrlBuilder;
@@ -41,26 +43,30 @@ import com.url.shortly.service.exeptions.AccountUnavailableException;
 import jakarta.validation.Valid;
 
 /**
- * Link management API. Only creation is implemented so far; the remaining
- * endpoints are placeholders until the ownership/authorization layer lands.
+ * Link management API. Creation, dashboard, details, updates, deletion and
+ * basic analytics are implemented; only the QR placeholder remains.
  */
 @RestController
 @RequestMapping("/api/v1/links")
 public class LinkApiController {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_ANALYTICS_DAYS = 365;
 
     final LinkService linkService;
     final CallerResolver callerResolver;
     final ShortUrlBuilder shortUrlBuilder;
+    final ClickAnalyticsService clickAnalytics;
     final Clock clock;
 
     LinkApiController(LinkService linkService, CallerResolver callerResolver,
-                      ShortUrlBuilder shortUrlBuilder, Clock clock) {
+                      ShortUrlBuilder shortUrlBuilder, ClickAnalyticsService clickAnalytics,
+                      Clock clock) {
 
         this.linkService = linkService;
         this.callerResolver = callerResolver;
         this.shortUrlBuilder = shortUrlBuilder;
+        this.clickAnalytics = clickAnalytics;
         this.clock = clock;
     }
 
@@ -180,11 +186,31 @@ public class LinkApiController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Return authorized analytics for a link. */
+    /** Return basic analytics for a link the caller owns (FR-09). */
+    @Operation(summary = "Read basic analytics for an owned link",
+            description = "Click totals, estimated unique visits and daily trend. "
+                    + "Advanced breakdowns are FR-10.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Basic analytics"),
+            @ApiResponse(responseCode = "400", description = "Invalid reporting range"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @GetMapping("/{linkId}/analytics")
-    public ResponseEntity<Void> getAnalytics(@PathVariable Long linkId) {
-        // TODO: verify ownership and return analytics within the configured retention.
-        return notImplemented();
+    public ResponseEntity<AnalyticsResponse> getAnalytics(
+            @PathVariable Long linkId,
+            @RequestParam(name = "days", defaultValue = "7") int days) {
+
+        if (days < 1 || days > MAX_ANALYTICS_DAYS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "days must be between 1 and " + MAX_ANALYTICS_DAYS);
+        }
+
+        // Same ownership rule as details/updates; deleted links stay hidden.
+        linkService.getOwnedLink(authenticatedCaller().userId(), linkId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(AnalyticsResponse.from(clickAnalytics.analytics(linkId, days)));
     }
 
     /** Generate or retrieve the QR code for an authorized link. */

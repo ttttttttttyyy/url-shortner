@@ -17,7 +17,10 @@ Tier is resolved once per authentication through `PlanTierResolver`: the
 service passes the result to both the JWT claim and the profile response, so
 FR-15's eventual subscription lookup does not run twice at registration.
 `CallerResolver` turns the signed `tier` claim into the
-`CallerContext.tier()` used by link creation and updates.
+`CallerContext.tier()` used by link creation and updates. That claim is the
+**only** entitlement gate. The `app.plans.*` boolean flags (including
+`customAliases`) describe plan capabilities for clients and FR-15; they are not
+read as a second, independently tunable gate.
 
 Because the tier lives in a signed, short-lived token, a downgrade still
 leaves the old paid claim valid until that token expires (up to 15 minutes).
@@ -39,7 +42,7 @@ configuration flag that grants paid access in a deployed environment.
 | Entitlement | `PlanTier.PAID` only; otherwise `403 Custom aliases require the paid plan` |
 | Length | 1–32 characters. Longer values are stopped by the request DTO (`400`); the generator also enforces the ceiling in unit tests |
 | Format | Must match `[A-Za-z0-9][A-Za-z0-9_-]*` and end with a letter/digit — no spaces, dots, `!`, leading/trailing `-` or `_`, or non-ASCII characters |
-| Reserved words | Case-insensitive list from `app.short-code.reserved-aliases` (`api`, `admin`, `actuator`, `auth`, `billing`, `login`, `robots.txt`, …) |
+| Reserved words | Case-insensitive list from `app.short-code.reserved-aliases` (`api`, `admin`, `actuator`, `auth`, `billing`, `login`, …). Entries with dots (`favicon.ico`, `robots.txt`, `sitemap.xml`) describe public routes blocked by the path guard; the alias format forbids dots, so they are unclaimable by construction |
 | Uniqueness | Enforced by the `ux_link_short_code` unique index. The database is the authority; a lost race surfaces as `409` |
 | Case | Short codes are case-sensitive (`My-Link` and `my-link` are different codes), matching generated base62 codes |
 

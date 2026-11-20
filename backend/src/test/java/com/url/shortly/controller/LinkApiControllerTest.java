@@ -47,6 +47,8 @@ import com.url.shortly.ratelimit.RateLimitDecision;
 import com.url.shortly.ratelimit.RateLimitPolicy;
 import com.url.shortly.ratelimit.RateLimitPolicyResolver;
 import com.url.shortly.ratelimit.RateLimiter;
+import com.url.shortly.service.ClickAnalyticsService;
+import com.url.shortly.service.LinkAnalytics;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortUrlBuilder;
@@ -91,6 +93,9 @@ class LinkApiControllerTest {
 
     @MockitoBean
     private Clock clock;
+
+    @MockitoBean
+    private ClickAnalyticsService clickAnalytics;
 
     @BeforeEach
     void defaultToGuestCallerWithoutRateLimitPolicies() {
@@ -364,10 +369,22 @@ class LinkApiControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/links/{linkId}/analytics returns analytics")
-    void analyticsIsNotImplementedYet() throws Exception {
+    @DisplayName("GET /api/v1/links/{linkId}/analytics returns basic analytics")
+    void analyticsReturnsData() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        given(linkService.getOwnedLink(7L, 1L)).willReturn(persistedLink());
+        given(clickAnalytics.analytics(1L, 7)).willReturn(new LinkAnalytics(
+                1L, 5, 2, 7, 86400,
+                List.of(new LinkAnalytics.DailyClicks(
+                        Instant.parse("2026-11-20T00:00:00Z"), 5, 2))));
+
         mockMvc.perform(get(LINKS + "/1/analytics"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linkId").value(1))
+                .andExpect(jsonPath("$.totalClicks").value(5))
+                .andExpect(jsonPath("$.uniqueClicks").value(2));
+
+        verify(clickAnalytics).analytics(1L, 7);
     }
 
     @Test

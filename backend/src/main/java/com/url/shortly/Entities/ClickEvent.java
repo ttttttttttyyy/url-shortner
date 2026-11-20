@@ -1,0 +1,51 @@
+package com.url.shortly.Entities;
+
+import java.time.Instant;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+/**
+ * One eligible visit to a short link (FR-09).
+ *
+ * <p>The visitor is identified by a salted hash, never a raw address. Referrer
+ * and user-agent are captured for FR-10 but are not exposed by the basic
+ * analytics response.
+ */
+@Entity
+@Table(name = "click_event", indexes = {
+        @Index(name = "idx_click_event_link_time", columnList = "link_id, occurred_at"),
+        @Index(name = "idx_click_event_visitor", columnList = "link_id, visitor_hash, occurred_at")
+})
+@Getter
+@Setter
+@NoArgsConstructor
+public class ClickEvent {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "link_id", nullable = false)
+    private Long linkId;
+
+    @Column(name = "occurred_at", nullable = false)
+    private Instant occurredAt;
+
+    @Column(name = "visitor_hash", nullable = false, length = 64)
+    private String visitorHash;
+
+    @Column(length = 512)
+    private String referrer;
+
+    @Column(name = "user_agent", length = 512)
+    private String userAgent;
+}
