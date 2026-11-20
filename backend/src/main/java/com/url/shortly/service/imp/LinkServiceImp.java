@@ -27,6 +27,7 @@ import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
 import com.url.shortly.service.ShortCodeGenerator;
 import com.url.shortly.service.exeptions.AliasNotAllowedException;
+import com.url.shortly.service.exeptions.InvalidAliasException;
 import com.url.shortly.service.exeptions.InvalidExpiryException;
 import com.url.shortly.service.exeptions.InvalidLinkUpdateException;
 import com.url.shortly.service.exeptions.LinkNotFoundException;
@@ -161,7 +162,10 @@ public class LinkServiceImp implements LinkService{
         Instant expiresAt = validateExpiry(request.expiresAt());
 
         String alias = request.alias();
-        if (alias != null && !alias.isBlank()) {
+        if (alias != null) {
+            if (alias.isBlank()) {
+                throw new InvalidAliasException("Alias must not be blank");
+            }
             generator.validateCustomAlias(alias, caller.tier());
             return insert(alias, destination, caller.userId(), true, expiresAt);
         }
@@ -181,13 +185,18 @@ public class LinkServiceImp implements LinkService{
     }
 
     /**
-     * FR-07: only destination URL, expiry and the active/disabled switch are
-     * editable. Aliases (FR-08) and passwords (FR-13) are paid features and are
-     * rejected until their features ship; the short code itself is immutable.
-     * A BLOCKED link is administered by FR-16, so its status cannot be changed
+     * FR-07/FR-08: destination URL, expiry, the active/disabled switch and (for
+     * paid callers) the custom alias are editable. Passwords await FR-13. A
+     * BLOCKED link is administered by FR-16, so its status cannot be changed
      * by the owner.
+     *
+     * <p>Ownership checks and the write share one transaction. Alias conflicts
+     * are pre-checked before any mutation; the unique index remains the real
+     * authority and a race is translated to {@code 409} without touching the
+     * persistence context again, so the whole update rolls back atomically.
      */
     @Override
+    @Transactional
     public Link updateOwnedLink(CallerContext caller, Long linkId, UpdateLinkRequest request) {
         Link link = getOwnedLink(caller.userId(), linkId);
 
@@ -203,6 +212,10 @@ public class LinkServiceImp implements LinkService{
                 throw new AliasNotAllowedException("Custom aliases require the paid plan");
             }
             generator.validateCustomAlias(alias, caller.tier());
+            if (!alias.equals(link.getShortCode())
+                    && linkRepository.existsByShortCode(alias)) {
+                throw new ShortCodeConflictException("Short code already taken: " + alias);
+            }
         }
         if (request.password() != null) {
             throw new PasswordNotAllowedException("Password protection is not available yet");
@@ -249,7 +262,11 @@ public class LinkServiceImp implements LinkService{
         try {
             return linkRepository.saveAndFlush(link);
         } catch (DataIntegrityViolationException ex) {
-            if (aliasChange && linkRepository.existsByShortCode(alias)) {
+            // The pre-check above handles ordinary duplicates. This branch is
+            // only a lost insert race; do not query through the now-poisoned
+            // persistence context, just translate and let the transaction roll
+            // back all of the changes above.
+            if (aliasChange) {
                 throw new ShortCodeConflictException("Short code already taken: " + alias, ex);
             }
             throw ex;

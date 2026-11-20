@@ -23,6 +23,7 @@ import com.url.shortly.Entities.AuthSession;
 import com.url.shortly.Repository.AppUserRepository;
 import com.url.shortly.Repository.AuthSessionRepository;
 import com.url.shortly.config.AppProperties;
+import com.url.shortly.enums.PlanTier;
 import com.url.shortly.enums.UserRole;
 import com.url.shortly.enums.UserStatus;
 import com.url.shortly.ratelimit.AuthRateLimitGuard;
@@ -229,12 +230,15 @@ public class AuthServiceImp implements AuthService {
         session.setExpiresAt(now.plus(refreshTokenTtl()));
         sessions.save(session);
 
-        JwtService.IssuedAccessToken accessToken = jwtService.issue(user);
+        // One resolution per session: the token claim and the profile must
+        // agree, and FR-15's subscription lookup should not run twice here.
+        PlanTier tier = tierResolver.tierFor(user.getId());
+        JwtService.IssuedAccessToken accessToken = jwtService.issue(user, tier);
         return new AuthResult(
                 accessToken.token(),
                 rawRefreshToken,
                 accessToken.expiresInSeconds(),
-                UserProfile.from(user, tierResolver.tierFor(user.getId())));
+                UserProfile.from(user, tier));
     }
 
     private String newRefreshToken() {

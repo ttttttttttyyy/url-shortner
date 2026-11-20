@@ -69,9 +69,11 @@ never in it:
   A *missing* header leaves the request anonymous; a *present but invalid*
   header is rejected with `401` even on public endpoints, so a stale token
   cannot silently turn an authenticated request into a guest request.
-- Tier is `FREE` until FR-15 resolves subscriptions. Changing a user's role or
-  tier takes effect when the current token expires; `me` always reads the
-  database.
+- Tier is `FREE` until FR-15 resolves subscriptions. The claim is signed at
+  issuance, so a role change or a paid-tier downgrade keeps its old value for
+  up to 15 minutes — the same accepted lag as account disabling. `me` resolves
+  the tier fresh on each request (and still checks that the account is active),
+  so it can report the new tier before older tokens do.
 
 ### Refresh token
 

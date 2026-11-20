@@ -26,6 +26,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.jayway.jsonpath.JsonPath;
+import com.url.shortly.Entities.Link;
+import com.url.shortly.Entities.LinkStatus;
+import com.url.shortly.Repository.LinkRepository;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.service.PlanTierResolver;
 
@@ -49,6 +52,9 @@ class PaidAliasIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private LinkRepository links;
 
     @MockitoBean
     private PlanTierResolver tierResolver;
@@ -85,7 +91,7 @@ class PaidAliasIntegrationTest {
     void aliasValidation() throws Exception {
         String token = register("alias-validation@example.com");
 
-        for (String invalid : new String[] { "api", "ADMIN", "bad alias!", "-start", "end_" }) {
+        for (String invalid : new String[] { "api", "ADMIN", "bad alias!", "-start", "end_", "", "   " }) {
             mockMvc.perform(post(LINKS)
                             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -162,6 +168,52 @@ class PaidAliasIntegrationTest {
     }
 
     @Test
+    @DisplayName("Aliases differing only by case are distinct short codes")
+    void aliasesAreCaseSensitive() throws Exception {
+        String token = register("alias-case@example.com");
+        createAlias(token, "Case-Link", "https://example.com/upper");
+        createAlias(token, "case-link", "https://example.com/lower");
+
+        mockMvc.perform(get("/Case-Link"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "https://example.com/upper"));
+        mockMvc.perform(get("/case-link"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "https://example.com/lower"));
+    }
+
+    @Test
+    @DisplayName("Alias, URL and active change together; a conflict applies none of them")
+    void combinedUpdateIsAtomic() throws Exception {
+        String token = register("alias-atomic@example.com");
+        createAlias(token, "occupied-alias");
+        Long linkId = createGeneratedLink(token);
+
+        mockMvc.perform(patch(LINKS + "/" + linkId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"fresh-alias\","
+                                + "\"url\":\"https://example.com/updated\",\"active\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shortCode").value("fresh-alias"))
+                .andExpect(jsonPath("$.destinationUrl").value("https://example.com/updated"))
+                .andExpect(jsonPath("$.status").value("DISABLED"));
+
+        // Now the same combined update onto an occupied alias must change nothing.
+        mockMvc.perform(patch(LINKS + "/" + linkId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"occupied-alias\","
+                                + "\"url\":\"https://example.com/should-not-apply\",\"active\":true}"))
+                .andExpect(status().isConflict());
+
+        Link unchanged = links.findById(linkId).orElseThrow();
+        assertThat(unchanged.getShortCode()).isEqualTo("fresh-alias");
+        assertThat(unchanged.getUrl()).isEqualTo("https://example.com/updated");
+        assertThat(unchanged.getStatus()).isEqualTo(LinkStatus.DISABLED);
+    }
+
+    @Test
     @DisplayName("The profile reports the resolved paid tier alongside the token claim")
     void profileReportsPaidTier() throws Exception {
         String token = register("alias-profile@example.com");
@@ -183,10 +235,14 @@ class PaidAliasIntegrationTest {
     }
 
     private void createAlias(String token, String alias) throws Exception {
+        createAlias(token, alias, "https://example.com/x");
+    }
+
+    private void createAlias(String token, String alias, String destination) throws Exception {
         mockMvc.perform(post(LINKS)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"url\":\"https://example.com/x\",\"alias\":\"" + alias + "\"}"))
+                        .content("{\"url\":\"" + destination + "\",\"alias\":\"" + alias + "\"}"))
                 .andExpect(status().isCreated());
     }
 

@@ -13,9 +13,17 @@
 
 ## Entitlement
 
-Tier is resolved through `PlanTierResolver`, which `JwtService` uses when it
-issues the `tier` claim in the access token. `CallerResolver` turns that claim
-into the `CallerContext.tier()` used by link creation and updates.
+Tier is resolved once per authentication through `PlanTierResolver`: the
+service passes the result to both the JWT claim and the profile response, so
+FR-15's eventual subscription lookup does not run twice at registration.
+`CallerResolver` turns the signed `tier` claim into the
+`CallerContext.tier()` used by link creation and updates.
+
+Because the tier lives in a signed, short-lived token, a downgrade still
+leaves the old paid claim valid until that token expires (up to 15 minutes).
+`GET /auth/me` resolves the tier fresh on every call and may therefore report
+the new tier before older tokens do; this is the same accepted lag as account
+disabling in FR-05.
 
 The default `FreePlanTierResolver` returns `FREE` for every account: no billing
 provider exists until FR-15, so production accounts cannot claim aliases yet.
@@ -36,8 +44,8 @@ configuration flag that grants paid access in a deployed environment.
 | Case | Short codes are case-sensitive (`My-Link` and `my-link` are different codes), matching generated base62 codes |
 
 Invalid format/reserved values return `422 Invalid alias`; a duplicate returns
-`409 Short code already taken`; a blank alias on update returns
-`422 Invalid link update`.
+`409 Short code already taken`. A blank alias is rejected on **both** create
+and update (`422`) rather than silently becoming a generated code.
 
 ## Endpoints
 
@@ -52,7 +60,9 @@ Invalid format/reserved values return `422 Invalid alias`; a duplicate returns
 
 Other editable fields (`url`, `expiresAt`, `clearExpiry`, `active`) and their
 status/moderation rules remain as documented in `fr-07-link-management.md`.
-Passwords are still reserved for FR-13.
+Alias, URL and status changes in one PATCH are a single transaction: if the
+alias is taken, none of the other fields are applied. Passwords are still
+reserved for FR-13.
 
 ## Decisions
 
@@ -66,19 +76,29 @@ Passwords are still reserved for FR-13.
   identity but is safe to change while the numeric id stays stable; public
   links using the old code naturally stop working, which is the expected
   consequence of a rename.
+- **Atomic updates.** Ownership/status validation and the write share one
+  transaction. Alias availability is pre-checked, the unique index remains the
+  authority, and a lost race is translated to `409` without querying through a
+  failed persistence context — so a conflicting alias cannot partially apply
+  the URL or status in the same PATCH.
+- **Blank alias is an error.** Silently treating whitespace as "no alias"
+  created inconsistent behaviour between create and update.
 
-## Out of scope
+## Out of scope / seams
 
 - **FR-15:** subscriptions, checkout and the real tier source.
 - **FR-13:** password-protected links.
-- **FR-16:** admin moderation of aliases and links.
+- **FR-16:** admin moderation of aliases and links. Today blocking is a status
+  on the link, so renaming a blocked link still resolves to the blocked page.
+  If FR-16 ever blocks a *specific alias*, rename would become an evasion route
+  and must be denied for blocked links or audited.
 
 ## Test coverage
 
 | Layer | Tests |
 | --- | --- |
 | Unit | `ShortCodeGeneratorTest` — entitlement, format, length, reserved words |
-| Full stack | `PaidAliasIntegrationTest` — paid creation, validation, duplicate `409`, rename, conflict on rename, tier claim/profile |
+| Full stack | `PaidAliasIntegrationTest` — paid creation, validation (including blank), duplicate `409`, rename, conflict on rename, case-sensitivity, combined all-or-nothing PATCH, tier claim/profile |
 | Full stack | `LinkManagementIntegrationTest` — free account blocked from create and rename |
 | Controller slice | `LinkApiControllerTest` — PATCH routing with `CallerContext` tier |
 | Regression | Full FR-03…FR-07 suites unchanged |
