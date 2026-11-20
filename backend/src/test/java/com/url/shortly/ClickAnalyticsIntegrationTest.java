@@ -2,6 +2,7 @@ package com.url.shortly;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +78,28 @@ class ClickAnalyticsIntegrationTest {
         int lastBucket = JsonPath.read(
                 analytics.getResponse().getContentAsString(), "$.series[7].clicks");
         assertThat(lastBucket).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("HEAD probes are not counted as clicks")
+    void headRequestsAreNotRecorded() throws Exception {
+        Registered owner = register("analytics-head@example.com");
+        MvcResult created = mockMvc.perform(post(LINKS)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + owner.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://example.com/head-target\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String code = JsonPath.read(created.getResponse().getContentAsString(), "$.shortCode");
+        Number id = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+
+        mockMvc.perform(head("/" + code))
+                .andExpect(status().isFound());
+
+        mockMvc.perform(get(LINKS + "/" + id + "/analytics")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + owner.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalClicks").value(0));
     }
 
     @Test

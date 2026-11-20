@@ -80,8 +80,30 @@ class AdvancedAnalyticsServiceImpTest {
         LinkAdvancedAnalytics result = service.analytics(7L, 7);
 
         assertThat(result.referrers()).hasSize(21);
-        assertThat(result.referrers().get(20))
+        // Other is sorted with the same rule, so its larger count comes first.
+        assertThat(result.referrers().get(0))
                 .isEqualTo(new LinkAdvancedAnalytics.Breakdown("Other", 5));
+    }
+
+    @Test
+    @DisplayName("Legacy rows get derived dimensions from the user agent and a clean referrer host")
+    void legacyRowsAreRecoveredAtReadTime() {
+        ClickEvent legacy = new ClickEvent();
+        legacy.setOccurredAt(NOW.minus(Duration.ofHours(1)));
+        legacy.setUserAgent("Mozilla/5.0 (Windows NT 10.0) Chrome/120.0");
+        legacy.setReferrer("https://www.example.com/search?q=secret");
+        givenEvents(List.of(legacy));
+
+        LinkAdvancedAnalytics result = service.analytics(7L, 7);
+
+        assertThat(result.devices()).containsExactly(
+                new LinkAdvancedAnalytics.Breakdown("Desktop", 1));
+        assertThat(result.operatingSystems()).containsExactly(
+                new LinkAdvancedAnalytics.Breakdown("Windows", 1));
+        assertThat(result.browsers()).containsExactly(
+                new LinkAdvancedAnalytics.Breakdown("Chrome", 1));
+        assertThat(result.referrers()).containsExactly(
+                new LinkAdvancedAnalytics.Breakdown("example.com", 1));
     }
 
     private void givenEvents(List<ClickEvent> events) {

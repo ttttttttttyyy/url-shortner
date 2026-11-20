@@ -25,7 +25,8 @@ downgrade therefore leaves the old paid claim valid until the token expires
 ## Endpoint
 
 `GET /api/v1/links/{linkId}/analytics/advanced?days=7` — bearer token required,
-`days` between 1 and 365 (default 7), `Cache-Control: no-store`.
+`days` between 1 and `app.analytics.retention-days` (365 by default, default
+range 7 days), `Cache-Control: no-store`.
 
 ```json
 {
@@ -45,10 +46,12 @@ downgrade therefore leaves the old paid claim valid until the token expires
 }
 ```
 
-Each breakdown is sorted by clicks descending, then value ascending. Missing
-dimensions are omitted (an empty list) — notably `countries` until a geo
-provider exists. Lists are capped at 20 entries with the remainder grouped as
-`Other`. Counts across a dimension reconcile with FR-09's `totalClicks`.
+Each breakdown is sorted by clicks descending, then value ascending — including
+the `Other` bucket. Missing dimensions are omitted (an empty list) — notably
+`countries` until a geo provider exists. Lists are capped at 20 entries with
+the remainder grouped as `Other`. Counts across a dimension reconcile with
+FR-09's `totalClicks`: rows recorded before V4 are classified from their stored
+user agent at read time, so upgrading does not lose them from the breakdowns.
 
 ## Data capture
 
@@ -58,13 +61,15 @@ provider exists. Lists are capped at 20 entries with the remainder grouped as
 - **Device / OS / browser** — `UserAgentClassifier` performs coarse,
   dependency-free matching at record time. Unknown or non-browser agents
   (e.g. `curl`) are reported as `Unknown`, not guessed.
-- **Referrer** — only the host is stored (`https://x/...?q=secret` → `x`), so
-  query-string secrets are never persisted or exposed. A missing referrer is
-  reported as `Direct`.
-- **Country** — `GeoResolver` is a provider seam. The default
+- **Referrer** — only the host is stored (`https://www.x/...?q=secret` → `x`),
+  with a leading `www.` stripped, so query-string secrets are never persisted
+  or exposed. The same normalization is applied at read time to rows written by
+  FR-09 before host-only storage; a missing/unparseable referrer is `Direct`.
+- **Country** — `GeoResolver` is a provider seam whose contract is ISO-3166
+  alpha-2. Recording uppercases valid two-letter codes and drops anything
+  else, so `us` and `US` do not fragment the breakdown. The default
   `UnavailableGeoResolver` returns `null`, so the country breakdown is empty,
-  which is exactly the SoW's "when data is available" condition. A GeoIP
-  provider can be plugged in later without changing the endpoint.
+  which is exactly the SoW's "when data is available" condition.
 
 ## Decisions
 
@@ -77,7 +82,11 @@ provider exists. Lists are capped at 20 entries with the remainder grouped as
 - **No GeoIP dependency yet.** Provider selection is still open; stubbing a
   resolver keeps the contract testable without inventing location data.
 - **Bounded responses.** A cap plus an `Other` bucket prevents a long tail of
-  referrer hosts from producing an unbounded payload.
+  referrer hosts from producing an unbounded payload; `Other` obeys the same
+  ordering rule as every other entry.
+- **Coarse UA caveat.** A bot that sends browser-like tokens can be classified
+  as `Desktop`/a named browser. That is accepted for this MVP; a dedicated bot
+  filter is a later concern.
 
 ## Out of scope
 

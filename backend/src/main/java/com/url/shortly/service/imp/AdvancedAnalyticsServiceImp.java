@@ -16,6 +16,8 @@ import com.url.shortly.Entities.ClickEvent;
 import com.url.shortly.Repository.ClickEventRepository;
 import com.url.shortly.service.AdvancedAnalyticsService;
 import com.url.shortly.service.LinkAdvancedAnalytics;
+import com.url.shortly.service.ReferrerNormalizer;
+import com.url.shortly.service.UserAgentClassifier;
 
 /**
  * FR-10: aggregates the dimensions captured at record time.
@@ -30,6 +32,11 @@ public class AdvancedAnalyticsServiceImp implements AdvancedAnalyticsService {
     private static final int MAX_ENTRIES = 20;
     private static final String OTHER = "Other";
     private static final String DIRECT = "Direct";
+
+    private static final Comparator<LinkAdvancedAnalytics.Breakdown> ORDER =
+            Comparator.comparingLong(LinkAdvancedAnalytics.Breakdown::clicks)
+                    .reversed()
+                    .thenComparing(LinkAdvancedAnalytics.Breakdown::value);
 
     private final ClickEventRepository clicks;
     private final Clock clock;
@@ -53,11 +60,19 @@ public class AdvancedAnalyticsServiceImp implements AdvancedAnalyticsService {
         Map<String, Long> referrers = new HashMap<>();
 
         for (ClickEvent event : events) {
+            // Rows recorded before V4 have no derived dimensions; recover them
+            // from the user agent so every click contributes to each breakdown.
+            UserAgentClassifier.ClientInfo derived =
+                    UserAgentClassifier.classify(event.getUserAgent());
             add(countries, event.getCountry());
-            add(devices, event.getDeviceType());
-            add(operatingSystems, event.getOperatingSystem());
-            add(browsers, event.getBrowser());
-            add(referrers, event.getReferrer() == null ? DIRECT : event.getReferrer());
+            add(devices, event.getDeviceType() == null ? derived.device() : event.getDeviceType());
+            add(operatingSystems, event.getOperatingSystem() == null
+                    ? derived.operatingSystem() : event.getOperatingSystem());
+            add(browsers, event.getBrowser() == null ? derived.browser() : event.getBrowser());
+
+            // Legacy FR-09 rows may hold a full referrer URL with secrets.
+            String referrer = ReferrerNormalizer.host(event.getReferrer());
+            add(referrers, referrer == null ? DIRECT : referrer);
         }
 
         return new LinkAdvancedAnalytics(
@@ -95,6 +110,8 @@ public class AdvancedAnalyticsServiceImp implements AdvancedAnalyticsService {
         if (remainder > 0) {
             result.add(new LinkAdvancedAnalytics.Breakdown(OTHER, remainder));
         }
+        // Other participates in the same ordering rule as every other entry.
+        result.sort(ORDER);
         return List.copyOf(result);
     }
 }

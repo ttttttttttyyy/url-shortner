@@ -1,6 +1,5 @@
 package com.url.shortly.service.imp;
 
-import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,6 +21,7 @@ import com.url.shortly.config.AppProperties;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.ClickMetadata;
 import com.url.shortly.service.LinkAnalytics;
+import com.url.shortly.service.ReferrerNormalizer;
 import com.url.shortly.service.UserAgentClassifier;
 
 /**
@@ -58,14 +58,14 @@ public class ClickAnalyticsServiceImp implements ClickAnalyticsService {
         event.setOccurredAt(clock.instant());
         event.setVisitorHash(truncate(
                 metadata.visitorHash() == null ? UNKNOWN_VISITOR : metadata.visitorHash(), 64));
-        event.setReferrer(referrerHost(metadata.referrer()));
+        event.setReferrer(ReferrerNormalizer.host(metadata.referrer()));
         event.setUserAgent(truncate(metadata.userAgent(), MAX_TEXT_LENGTH));
 
         UserAgentClassifier.ClientInfo client = UserAgentClassifier.classify(metadata.userAgent());
         event.setDeviceType(client.device());
         event.setOperatingSystem(client.operatingSystem());
         event.setBrowser(client.browser());
-        event.setCountry(truncate(metadata.country(), 64));
+        event.setCountry(normalizeCountry(metadata.country()));
         clicks.save(event);
     }
 
@@ -120,19 +120,15 @@ public class ClickAnalyticsServiceImp implements ClickAnalyticsService {
     }
 
     /**
-     * Store only the referring host: full URLs can carry tokens or other
-     * secrets in the query string. Invalid or opaque referrers are dropped.
+     * Country contract: ISO-3166 alpha-2, stored uppercase. Anything else is
+     * dropped rather than fragmenting the breakdown with alternate names.
      */
-    private static String referrerHost(String rawReferrer) {
-        if (rawReferrer == null || rawReferrer.isBlank()) {
+    private static String normalizeCountry(String value) {
+        if (value == null) {
             return null;
         }
-        try {
-            String host = URI.create(rawReferrer.trim()).getHost();
-            return host == null || host.isBlank() ? null : host.toLowerCase(Locale.ROOT);
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
+        String trimmed = value.trim().toUpperCase(Locale.ROOT);
+        return trimmed.matches("[A-Z]{2}") ? trimmed : null;
     }
 
     private static String truncate(String value, int maxLength) {

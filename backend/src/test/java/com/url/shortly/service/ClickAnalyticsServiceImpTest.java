@@ -107,6 +107,18 @@ class ClickAnalyticsServiceImpTest {
         assertThat(saved.getBrowser()).isEqualTo("Chrome");
     }
 
+    @Test
+    @DisplayName("Country is stored as normalized ISO-3166 alpha-2 or dropped")
+    void countryContract() {
+        service.record(7L, new ClickMetadata("visitor", null, "Mozilla/5.0 Chrome/120", " us "));
+        service.record(7L, new ClickMetadata("visitor", null, "Mozilla/5.0 Chrome/120", "United States"));
+
+        ArgumentCaptor<ClickEvent> captured = ArgumentCaptor.forClass(ClickEvent.class);
+        verify(clicks, org.mockito.Mockito.times(2)).save(captured.capture());
+        assertThat(captured.getAllValues().get(0).getCountry()).isEqualTo("US");
+        assertThat(captured.getAllValues().get(1).getCountry()).isNull();
+    }
+
     private void givenEvents(List<ClickEvent> events) {
         when(clicks.findByLinkIdAndOccurredAtGreaterThanEqualOrderByOccurredAtAsc(
                 eq(7L), any())).thenReturn(events);

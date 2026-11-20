@@ -40,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.config.AppProperties;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.ratelimit.ClientIpResolver;
@@ -102,11 +103,16 @@ class LinkApiControllerTest {
     @MockitoBean
     private AdvancedAnalyticsService advancedAnalytics;
 
+    @MockitoBean
+    private AppProperties appProperties;
+
     @BeforeEach
     void defaultToGuestCallerWithoutRateLimitPolicies() {
         given(callerResolver.current()).willReturn(CallerContext.guest());
         given(rateLimitPolicyResolver.policiesFor(any(), any())).willReturn(List.of());
         given(clock.instant()).willReturn(Instant.parse("2026-11-20T12:00:00Z"));
+        given(appProperties.analytics()).willReturn(
+                new AppProperties.Analytics(Duration.ofHours(24), 365, "country", true));
     }
 
     @Test

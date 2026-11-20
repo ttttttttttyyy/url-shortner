@@ -7,7 +7,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -21,10 +20,10 @@ import lombok.Setter;
  * analytics response.
  */
 @Entity
-@Table(name = "click_event", indexes = {
-        @Index(name = "idx_click_event_link_time", columnList = "link_id, occurred_at"),
-        @Index(name = "idx_click_event_visitor", columnList = "link_id, visitor_hash, occurred_at")
-})
+// Indexes are declared only by V3__click_analytics.sql: with ddl-auto: update
+// also active, repeating them here would make Hibernate and Flyway fight over
+// the same index names.
+@Table(name = "click_event")
 @Getter
 @Setter
 @NoArgsConstructor

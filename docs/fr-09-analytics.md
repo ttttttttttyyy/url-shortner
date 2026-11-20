@@ -14,10 +14,11 @@
 ## What is recorded
 
 A click is recorded only when a public short link actually redirects: stored
-status `ACTIVE`, not expired, and no password gate (FR-13). Disabled, blocked,
-deleted, expired and unknown codes render their status page instead and record
-nothing. A malformed stored destination returns the FR-03 internal-error page
-and is not counted.
+status `ACTIVE`, not expired, and no password gate (FR-13), and the request is
+a `GET`. `HEAD` probes are mapped to the same handler by Spring but are not
+visits and are not counted. Disabled, blocked, deleted, expired and unknown
+codes render their status page instead and record nothing. A malformed stored
+destination returns the FR-03 internal-error page and is not counted.
 
 Recording is best effort: if analytics persistence fails, the redirect still
 succeeds and the failure is logged. The visitor is identified by the salted
@@ -30,12 +31,14 @@ device, OS and browser columns.
 `V3__click_analytics.sql` adds `click_event` with an `ON DELETE CASCADE`
 foreign key to `link`, plus indexes on `(link_id, occurred_at)` and
 `(link_id, visitor_hash, occurred_at)`. Deleting a link removes its history.
+Those indexes are declared by Flyway only; the JPA entity does not repeat them,
+because `ddl-auto: update` would otherwise compete with the migration.
 
 ## Endpoint
 
 `GET /api/v1/links/{linkId}/analytics?days=7` — requires a bearer token and
 ownership of the link (the same `404` rule as details/updates). `days` must be
-between 1 and 365 (`app.analytics.retention-days` default) and defaults to 7.
+between 1 and `app.analytics.retention-days` (365 by default) and defaults to 7.
 Successful responses carry `Cache-Control: no-store`.
 
 ```json
@@ -81,6 +84,9 @@ Successful responses carry `Cache-Control: no-store`.
   anonymous visitor id would need a cookie and a privacy decision.
 - **No bot filtering or async queue yet.** Every eligible request is counted
   synchronously; abuse filtering and buffering are later concerns.
+- **`anonymize-ip` is always enforced.** Raw addresses are never stored or
+  returned regardless of the flag; it is retained as descriptive plan/config
+  metadata, not a switch that can weaken privacy.
 
 ## Out of scope
 

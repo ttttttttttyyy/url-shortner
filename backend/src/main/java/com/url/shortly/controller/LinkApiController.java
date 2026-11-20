@@ -33,6 +33,7 @@ import com.url.shortly.DTO.LinkDetailResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
+import com.url.shortly.config.AppProperties;
 import com.url.shortly.enums.PlanTier;
 import com.url.shortly.ratelimit.RateLimitScope;
 import com.url.shortly.ratelimit.RateLimited;
@@ -61,17 +62,20 @@ public class LinkApiController {
     final ShortUrlBuilder shortUrlBuilder;
     final ClickAnalyticsService clickAnalytics;
     final AdvancedAnalyticsService advancedAnalytics;
+    final AppProperties properties;
     final Clock clock;
 
     LinkApiController(LinkService linkService, CallerResolver callerResolver,
                       ShortUrlBuilder shortUrlBuilder, ClickAnalyticsService clickAnalytics,
-                      AdvancedAnalyticsService advancedAnalytics, Clock clock) {
+                      AdvancedAnalyticsService advancedAnalytics, AppProperties properties,
+                      Clock clock) {
 
         this.linkService = linkService;
         this.callerResolver = callerResolver;
         this.shortUrlBuilder = shortUrlBuilder;
         this.clickAnalytics = clickAnalytics;
         this.advancedAnalytics = advancedAnalytics;
+        this.properties = properties;
         this.clock = clock;
     }
 
@@ -206,9 +210,9 @@ public class LinkApiController {
             @PathVariable Long linkId,
             @RequestParam(name = "days", defaultValue = "7") int days) {
 
-        if (days < 1 || days > MAX_ANALYTICS_DAYS) {
+        if (days < 1 || days > maxAnalyticsDays()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "days must be between 1 and " + MAX_ANALYTICS_DAYS);
+                    "days must be between 1 and " + maxAnalyticsDays());
         }
 
         // Same ownership rule as details/updates; deleted links stay hidden.
@@ -234,9 +238,9 @@ public class LinkApiController {
             @PathVariable Long linkId,
             @RequestParam(name = "days", defaultValue = "7") int days) {
 
-        if (days < 1 || days > MAX_ANALYTICS_DAYS) {
+        if (days < 1 || days > maxAnalyticsDays()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "days must be between 1 and " + MAX_ANALYTICS_DAYS);
+                    "days must be between 1 and " + maxAnalyticsDays());
         }
 
         CallerContext caller = authenticatedCaller();
@@ -263,6 +267,14 @@ public class LinkApiController {
      * rejects anonymous requests first; this guard also covers test/mock
      * principals that carry no account id.
      */
+    /** The reporting ceiling is the configured analytics retention window. */
+    private int maxAnalyticsDays() {
+        AppProperties.Analytics analytics = properties.analytics();
+        return analytics == null || analytics.retentionDays() <= 0
+                ? MAX_ANALYTICS_DAYS
+                : analytics.retentionDays();
+    }
+
     private CallerContext authenticatedCaller() {
         CallerContext caller = callerResolver.current();
         if (caller == null || caller.userId() == null) {

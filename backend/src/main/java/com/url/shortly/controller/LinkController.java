@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -85,15 +86,18 @@ public class LinkController {
         }
 
         // Analytics must never turn a valid redirect into a failure. Only
-        // eligible redirects (ACTIVE, unexpired, no password) reach this point.
-        try {
-            clickAnalytics.record(resolution.link().getId(), new ClickMetadata(
-                    clientIpResolver.key(request),
-                    request.getHeader(HttpHeaders.REFERER),
-                    request.getHeader(HttpHeaders.USER_AGENT),
-                    geoResolver.countryFor(request)));
-        } catch (RuntimeException ex) {
-            log.warn("Could not record click for short code {}", shortCode, ex);
+        // eligible GET redirects (ACTIVE, unexpired, no password) are counted;
+        // Spring maps HEAD to this handler, and a probe is not a visit.
+        if (HttpMethod.GET.matches(request.getMethod())) {
+            try {
+                clickAnalytics.record(resolution.link().getId(), new ClickMetadata(
+                        clientIpResolver.key(request),
+                        request.getHeader(HttpHeaders.REFERER),
+                        request.getHeader(HttpHeaders.USER_AGENT),
+                        geoResolver.countryFor(request)));
+            } catch (RuntimeException ex) {
+                log.warn("Could not record click for short code {}", shortCode, ex);
+            }
         }
 
         return ResponseEntity.status(HttpStatus.FOUND)
