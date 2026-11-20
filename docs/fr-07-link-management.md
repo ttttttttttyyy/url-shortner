@@ -84,7 +84,7 @@ FR-12 settles it, purging can be added without changing this API.
 ## Out of scope
 
 - **FR-08:** custom aliases (including renaming an existing link).
-- **FR-11:** per-link analytics.
+- **FR-09/FR-10:** per-link analytics and paid breakdowns.
 - **FR-12:** retention enforcement and purge jobs.
 - **FR-13:** password protection.
 - **FR-16:** admin moderation, `BLOCKED` status and any owner override.

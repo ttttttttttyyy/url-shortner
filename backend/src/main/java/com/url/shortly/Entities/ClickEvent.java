@@ -43,9 +43,22 @@ public class ClickEvent {
     @Column(name = "visitor_hash", nullable = false, length = 64)
     private String visitorHash;
 
+    /** Referring host only, never a full URL with query strings. */
     @Column(length = 512)
     private String referrer;
 
     @Column(name = "user_agent", length = 512)
     private String userAgent;
+
+    @Column(length = 64)
+    private String country;
+
+    @Column(name = "device_type", length = 32)
+    private String deviceType;
+
+    @Column(name = "operating_system", length = 32)
+    private String operatingSystem;
+
+    @Column(length = 32)
+    private String browser;
 }

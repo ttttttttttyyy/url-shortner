@@ -1,5 +1,6 @@
 package com.url.shortly.service.imp;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -8,6 +9,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -20,6 +22,7 @@ import com.url.shortly.config.AppProperties;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.ClickMetadata;
 import com.url.shortly.service.LinkAnalytics;
+import com.url.shortly.service.UserAgentClassifier;
 
 /**
  * FR-09: best-effort click recording and basic analytics aggregation.
@@ -55,8 +58,14 @@ public class ClickAnalyticsServiceImp implements ClickAnalyticsService {
         event.setOccurredAt(clock.instant());
         event.setVisitorHash(truncate(
                 metadata.visitorHash() == null ? UNKNOWN_VISITOR : metadata.visitorHash(), 64));
-        event.setReferrer(truncate(metadata.referrer(), MAX_TEXT_LENGTH));
+        event.setReferrer(referrerHost(metadata.referrer()));
         event.setUserAgent(truncate(metadata.userAgent(), MAX_TEXT_LENGTH));
+
+        UserAgentClassifier.ClientInfo client = UserAgentClassifier.classify(metadata.userAgent());
+        event.setDeviceType(client.device());
+        event.setOperatingSystem(client.operatingSystem());
+        event.setBrowser(client.browser());
+        event.setCountry(truncate(metadata.country(), 64));
         clicks.save(event);
     }
 
@@ -108,6 +117,22 @@ public class ClickAnalyticsServiceImp implements ClickAnalyticsService {
         return configured == null || configured.isZero() || configured.isNegative()
                 ? DEFAULT_UNIQUE_WINDOW
                 : configured;
+    }
+
+    /**
+     * Store only the referring host: full URLs can carry tokens or other
+     * secrets in the query string. Invalid or opaque referrers are dropped.
+     */
+    private static String referrerHost(String rawReferrer) {
+        if (rawReferrer == null || rawReferrer.isBlank()) {
+            return null;
+        }
+        try {
+            String host = URI.create(rawReferrer.trim()).getHost();
+            return host == null || host.isBlank() ? null : host.toLowerCase(Locale.ROOT);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private static String truncate(String value, int maxLength) {

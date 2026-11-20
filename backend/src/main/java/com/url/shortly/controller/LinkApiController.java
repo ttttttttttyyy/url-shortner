@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.url.shortly.DTO.AdvancedAnalyticsResponse;
 import com.url.shortly.DTO.AnalyticsResponse;
 import com.url.shortly.DTO.CallerContext;
 import com.url.shortly.DTO.CallerResolver;
@@ -32,8 +33,10 @@ import com.url.shortly.DTO.LinkDetailResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
 import com.url.shortly.Entities.Link;
 import com.url.shortly.Entities.LinkStatus;
+import com.url.shortly.enums.PlanTier;
 import com.url.shortly.ratelimit.RateLimitScope;
 import com.url.shortly.ratelimit.RateLimited;
+import com.url.shortly.service.AdvancedAnalyticsService;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
@@ -57,16 +60,18 @@ public class LinkApiController {
     final CallerResolver callerResolver;
     final ShortUrlBuilder shortUrlBuilder;
     final ClickAnalyticsService clickAnalytics;
+    final AdvancedAnalyticsService advancedAnalytics;
     final Clock clock;
 
     LinkApiController(LinkService linkService, CallerResolver callerResolver,
                       ShortUrlBuilder shortUrlBuilder, ClickAnalyticsService clickAnalytics,
-                      Clock clock) {
+                      AdvancedAnalyticsService advancedAnalytics, Clock clock) {
 
         this.linkService = linkService;
         this.callerResolver = callerResolver;
         this.shortUrlBuilder = shortUrlBuilder;
         this.clickAnalytics = clickAnalytics;
+        this.advancedAnalytics = advancedAnalytics;
         this.clock = clock;
     }
 
@@ -211,6 +216,39 @@ public class LinkApiController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(AnalyticsResponse.from(clickAnalytics.analytics(linkId, days)));
+    }
+
+    /** Paid-only breakdowns for an owned link (FR-10). */
+    @Operation(summary = "Read advanced analytics for an owned link",
+            description = "Country/device/OS/browser/referrer breakdowns. Requires the paid plan. "
+                    + "Dimensions with no recorded data are omitted.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Advanced breakdowns"),
+            @ApiResponse(responseCode = "400", description = "Invalid reporting range"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Paid plan required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
+    @GetMapping("/{linkId}/analytics/advanced")
+    public ResponseEntity<AdvancedAnalyticsResponse> getAdvancedAnalytics(
+            @PathVariable Long linkId,
+            @RequestParam(name = "days", defaultValue = "7") int days) {
+
+        if (days < 1 || days > MAX_ANALYTICS_DAYS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "days must be between 1 and " + MAX_ANALYTICS_DAYS);
+        }
+
+        CallerContext caller = authenticatedCaller();
+        if (caller.tier() != PlanTier.PAID) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Advanced analytics requires the paid plan");
+        }
+        linkService.getOwnedLink(caller.userId(), linkId);
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(AdvancedAnalyticsResponse.from(advancedAnalytics.analytics(linkId, days)));
     }
 
     /** Generate or retrieve the QR code for an authorized link. */

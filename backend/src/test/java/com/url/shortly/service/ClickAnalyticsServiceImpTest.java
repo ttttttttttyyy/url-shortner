@@ -88,7 +88,9 @@ class ClickAnalyticsServiceImpTest {
     @Test
     @DisplayName("recording stores a visitor hash and never the raw address")
     void recordingUsesVisitorHash() {
-        service.record(7L, new ClickMetadata("hashed-visitor", " https://ref.example ", " agent "));
+        service.record(7L, new ClickMetadata(
+                "hashed-visitor", "https://ref.example/search?q=secret",
+                "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0", "US"));
 
         ArgumentCaptor<ClickEvent> captured = ArgumentCaptor.forClass(ClickEvent.class);
         verify(clicks).save(captured.capture());
@@ -96,8 +98,13 @@ class ClickAnalyticsServiceImpTest {
         assertThat(saved.getLinkId()).isEqualTo(7L);
         assertThat(saved.getOccurredAt()).isEqualTo(NOW);
         assertThat(saved.getVisitorHash()).isEqualTo("hashed-visitor");
-        assertThat(saved.getReferrer()).isEqualTo("https://ref.example");
-        assertThat(saved.getUserAgent()).isEqualTo("agent");
+        // The host is kept; the query string (which may carry secrets) is not.
+        assertThat(saved.getReferrer()).isEqualTo("ref.example");
+        assertThat(saved.getUserAgent()).contains("Chrome/120.0");
+        assertThat(saved.getCountry()).isEqualTo("US");
+        assertThat(saved.getDeviceType()).isEqualTo("Desktop");
+        assertThat(saved.getOperatingSystem()).isEqualTo("Windows");
+        assertThat(saved.getBrowser()).isEqualTo("Chrome");
     }
 
     private void givenEvents(List<ClickEvent> events) {

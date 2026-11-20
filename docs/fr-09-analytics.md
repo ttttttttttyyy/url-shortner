@@ -5,7 +5,7 @@
 | Status | Implemented (uncommitted) |
 | Scope | Click recording on eligible redirects, `GET /api/v1/links/{linkId}/analytics` |
 | Source | Statement of Work v1.0, FR-09 and proposed endpoint inventory §7.2 |
-| Related code | `V3__click_analytics.sql`, `ClickEvent`, `ClickAnalyticsServiceImp`, `LinkController`, `LinkApiController` |
+| Related code | `V3__click_analytics.sql`, `V4__advanced_analytics.sql`, `ClickEvent`, `ClickAnalyticsServiceImp`, `LinkController`, `LinkApiController` |
 
 ## Requirement
 
@@ -21,9 +21,11 @@ and is not counted.
 
 Recording is best effort: if analytics persistence fails, the redirect still
 succeeds and the failure is logged. The visitor is identified by the salted
-hash from `ClientIpResolver` — raw IP addresses are never stored. Referrer and
-user-agent are stored (truncated to 512 chars) for FR-10, but are not exposed
-by this endpoint.
+hash from `ClientIpResolver` — raw IP addresses are never stored. The referrer
+is reduced to its host (query strings may contain secrets), and the user-agent
+is stored truncated to 512 chars; both feed FR-10 breakdowns but are not
+exposed by this endpoint. FR-10's V4 migration adds the derived country,
+device, OS and browser columns.
 
 `V3__click_analytics.sql` adds `click_event` with an `ON DELETE CASCADE`
 foreign key to `link`, plus indexes on `(link_id, occurred_at)` and
@@ -94,5 +96,5 @@ Successful responses carry `Cache-Control: no-store`.
 | Unit | `ClickAnalyticsServiceImpTest` — unique-window dedupe, empty-day buckets, visitor hashing on record |
 | Full stack | `ClickAnalyticsIntegrationTest` — real redirects recorded, disabled links ignored, ownership, auth, range validation |
 | Controller slice | `LinkApiControllerTest` — analytics response mapping |
-| Migration | `FlywayMigrationTest` — V3 applies and click rows cascade with their link |
+| Migration | `FlywayMigrationTest` — V3/V4 apply and click rows cascade with their link |
 | Regression | Full FR-03…FR-08 suites unchanged |

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.url.shortly.ratelimit.ClientIpResolver;
 import com.url.shortly.service.ClickAnalyticsService;
 import com.url.shortly.service.ClickMetadata;
+import com.url.shortly.service.GeoResolver;
 import com.url.shortly.service.LinkResolution;
 import com.url.shortly.service.LinkService;
 
@@ -43,13 +44,16 @@ public class LinkController {
     private final LinkStatusPage statusPage;
     private final ClickAnalyticsService clickAnalytics;
     private final ClientIpResolver clientIpResolver;
+    private final GeoResolver geoResolver;
 
     LinkController(LinkService linkService, LinkStatusPage statusPage,
-                   ClickAnalyticsService clickAnalytics, ClientIpResolver clientIpResolver) {
+                   ClickAnalyticsService clickAnalytics, ClientIpResolver clientIpResolver,
+                   GeoResolver geoResolver) {
         this.linkService = linkService;
         this.statusPage = statusPage;
         this.clickAnalytics = clickAnalytics;
         this.clientIpResolver = clientIpResolver;
+        this.geoResolver = geoResolver;
     }
 
     @Operation(summary = "Resolve a short link",
@@ -86,7 +90,8 @@ public class LinkController {
             clickAnalytics.record(resolution.link().getId(), new ClickMetadata(
                     clientIpResolver.key(request),
                     request.getHeader(HttpHeaders.REFERER),
-                    request.getHeader(HttpHeaders.USER_AGENT)));
+                    request.getHeader(HttpHeaders.USER_AGENT),
+                    geoResolver.countryFor(request)));
         } catch (RuntimeException ex) {
             log.warn("Could not record click for short code {}", shortCode, ex);
         }

@@ -47,7 +47,9 @@ import com.url.shortly.ratelimit.RateLimitDecision;
 import com.url.shortly.ratelimit.RateLimitPolicy;
 import com.url.shortly.ratelimit.RateLimitPolicyResolver;
 import com.url.shortly.ratelimit.RateLimiter;
+import com.url.shortly.service.AdvancedAnalyticsService;
 import com.url.shortly.service.ClickAnalyticsService;
+import com.url.shortly.service.LinkAdvancedAnalytics;
 import com.url.shortly.service.LinkAnalytics;
 import com.url.shortly.service.LinkService;
 import com.url.shortly.service.OwnedLinks;
@@ -96,6 +98,9 @@ class LinkApiControllerTest {
 
     @MockitoBean
     private ClickAnalyticsService clickAnalytics;
+
+    @MockitoBean
+    private AdvancedAnalyticsService advancedAnalytics;
 
     @BeforeEach
     void defaultToGuestCallerWithoutRateLimitPolicies() {
@@ -385,6 +390,26 @@ class LinkApiControllerTest {
                 .andExpect(jsonPath("$.uniqueClicks").value(2));
 
         verify(clickAnalytics).analytics(1L, 7);
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/links/{linkId}/analytics/advanced is paid-only")
+    void advancedAnalyticsIsPaidOnly() throws Exception {
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
+        mockMvc.perform(get(LINKS + "/1/analytics/advanced"))
+                .andExpect(status().isForbidden());
+
+        given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.PAID));
+        given(linkService.getOwnedLink(7L, 1L)).willReturn(persistedLink());
+        given(advancedAnalytics.analytics(1L, 7)).willReturn(new LinkAdvancedAnalytics(
+                1L, 7,
+                List.of(new LinkAdvancedAnalytics.Breakdown("US", 3)),
+                List.of(), List.of(), List.of(), List.of()));
+
+        mockMvc.perform(get(LINKS + "/1/analytics/advanced"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.countries[0].value").value("US"))
+                .andExpect(jsonPath("$.countries[0].clicks").value(3));
     }
 
     @Test

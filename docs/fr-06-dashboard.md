@@ -101,8 +101,8 @@ moving pages or filtering does not change it.
 - `maxLinks` is the configured free-plan limit (`app.plans.free.max-links`)
   reported as context for the frontend; FR-15/FR-19 will make plan resolution
   dynamic.
-- Click totals and trends are **not** included: no click data is collected yet.
-  FR-11 will add collection and a separate analytics endpoint.
+- Click totals and trends are **not** included in the dashboard payload: they
+  are served by the FR-09 analytics endpoint once clicks have been recorded.
 
 ## Decisions
 
@@ -111,7 +111,7 @@ moving pages or filtering does not change it.
   backend a pure data source and lets the frontend decide how to display them.
 - **Count-based summary now, click metrics later.** The schema has no click
   table; inventing placeholder click fields would freeze a contract that
-  FR-11 will replace.
+  FR-10 will extend with paid breakdowns.
 - **Offset pagination, newest first.** Deterministic and easy for a dashboard
   table; `size` is capped so a single caller cannot request an unbounded
   response.
@@ -122,7 +122,7 @@ moving pages or filtering does not change it.
 
 - **FR-07:** per-link read, update and delete (the remaining `/links/{id}`
   handlers still return `501`).
-- **FR-11:** click collection, totals and trends.
+- **FR-09/FR-10:** click analytics and paid breakdowns (separate endpoints).
 - **FR-15 / FR-19:** dynamic plan entitlements and quota enforcement.
 
 ## Test coverage
