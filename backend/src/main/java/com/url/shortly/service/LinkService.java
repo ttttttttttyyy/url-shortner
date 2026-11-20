@@ -25,8 +25,11 @@ public interface LinkService {
     /** Read one link owned by {@code ownerId}; soft-deleted rows are not readable. */
     Link getOwnedLink(Long ownerId, Long linkId);
 
-    /** Update permitted properties of one link owned by {@code ownerId}. */
-    Link updateOwnedLink(Long ownerId, Long linkId, UpdateLinkRequest request);
+    /**
+     * Update permitted properties of one link owned by the caller. The caller's
+     * tier decides whether a custom alias is allowed (FR-08).
+     */
+    Link updateOwnedLink(CallerContext caller, Long linkId, UpdateLinkRequest request);
 
     /** Soft-delete one link owned by {@code ownerId}; idempotent. */
     void deleteOwnedLink(Long ownerId, Long linkId);

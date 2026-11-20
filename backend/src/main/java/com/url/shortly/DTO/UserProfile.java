@@ -18,13 +18,13 @@ public record UserProfile(
         boolean emailVerified,
         Instant createdAt) {
 
-    public static UserProfile from(AppUser user) {
+    public static UserProfile from(AppUser user, PlanTier tier) {
         return new UserProfile(
                 user.getId(),
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getRole(),
-                PlanTier.FREE,
+                tier,
                 user.getEmailVerifiedAt() != null,
                 user.getCreatedAt());
     }

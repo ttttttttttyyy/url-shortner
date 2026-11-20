@@ -148,8 +148,9 @@ Rate-limit state is in memory: it is per instance and resets on restart. See
 deferral and the FR-04 boundaries. Authentication endpoints, token handling
 and the deferred email flows are documented in
 `docs/fr-05-authentication.md`. The authenticated dashboard data contract is in
-`docs/fr-06-dashboard.md`, and owned-link updates/deletion in
-`docs/fr-07-link-management.md`.
+`docs/fr-06-dashboard.md`, owned-link updates/deletion in
+`docs/fr-07-link-management.md`, and paid custom aliases in
+`docs/fr-08-custom-aliases.md`.
 
 ## Project Scope
 

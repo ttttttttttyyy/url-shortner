@@ -120,7 +120,7 @@ public class LinkApiController {
                     "deleted links are not listed; omit status to exclude them");
         }
 
-        OwnedLinks result = linkService.listOwnedLinks(authenticatedOwnerId(), page, size, status);
+        OwnedLinks result = linkService.listOwnedLinks(authenticatedCaller().userId(), page, size, status);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.VARY, "Authorization")
@@ -136,7 +136,7 @@ public class LinkApiController {
     })
     @GetMapping("/{linkId}")
     public ResponseEntity<LinkDetailResponse> getLink(@PathVariable Long linkId) {
-        Link link = linkService.getOwnedLink(authenticatedOwnerId(), linkId);
+        Link link = linkService.getOwnedLink(authenticatedCaller().userId(), linkId);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(LinkDetailResponse.from(
@@ -145,8 +145,8 @@ public class LinkApiController {
 
     /** Update permitted properties of an owned link. */
     @Operation(summary = "Update an owned link",
-            description = "Only url, expiresAt and active may be changed. Aliases and passwords "
-                    + "are paid features and are rejected until FR-08/FR-13 ship.")
+            description = "url, expiresAt, clearExpiry and active may be changed. A custom alias "
+                    + "requires the paid plan (FR-08); passwords await FR-13.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Updated link details"),
             @ApiResponse(responseCode = "401", description = "Authentication required"),
@@ -158,7 +158,7 @@ public class LinkApiController {
     @PatchMapping("/{linkId}")
     public ResponseEntity<LinkDetailResponse> updateLink(@PathVariable Long linkId,
             @RequestBody UpdateLinkRequest request) {
-        Link link = linkService.updateOwnedLink(authenticatedOwnerId(), linkId, request);
+        Link link = linkService.updateOwnedLink(authenticatedCaller(), linkId, request);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(LinkDetailResponse.from(
@@ -176,7 +176,7 @@ public class LinkApiController {
     })
     @DeleteMapping("/{linkId}")
     public ResponseEntity<Void> deleteLink(@PathVariable Long linkId) {
-        linkService.deleteOwnedLink(authenticatedOwnerId(), linkId);
+        linkService.deleteOwnedLink(authenticatedCaller().userId(), linkId);
         return ResponseEntity.noContent().build();
     }
 
@@ -199,12 +199,12 @@ public class LinkApiController {
      * rejects anonymous requests first; this guard also covers test/mock
      * principals that carry no account id.
      */
-    private Long authenticatedOwnerId() {
+    private CallerContext authenticatedCaller() {
         CallerContext caller = callerResolver.current();
         if (caller == null || caller.userId() == null) {
             throw new AccountUnavailableException();
         }
-        return caller.userId();
+        return caller;
     }
 
     private ResponseEntity<Void> notImplemented() {

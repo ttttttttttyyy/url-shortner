@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Clock;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -310,7 +311,9 @@ class LinkApiControllerTest {
     @DisplayName("PATCH /api/v1/links/{linkId} updates one owned link")
     void updateLinkReturnsUpdatedDetails() throws Exception {
         given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
-        given(linkService.updateOwnedLink(eq(7L), eq(1L), any())).willReturn(persistedLink());
+        given(linkService.updateOwnedLink(
+                eq(new CallerContext(7L, PlanTier.FREE)), eq(1L), any()))
+                .willReturn(persistedLink());
         given(shortUrlBuilder.build("abc123")).willReturn("https://sho.rt/abc123");
 
         mockMvc.perform(patch(LINKS + "/1")
@@ -319,14 +322,16 @@ class LinkApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.shortCode").value("abc123"));
 
-        verify(linkService).updateOwnedLink(eq(7L), eq(1L), any());
+        verify(linkService).updateOwnedLink(
+                eq(new CallerContext(7L, PlanTier.FREE)), eq(1L), any());
     }
 
     @Test
     @DisplayName("PATCH /api/v1/links/{linkId} maps a stale update to 409 problem detail")
     void staleUpdateReturnsConflict() throws Exception {
         given(callerResolver.current()).willReturn(new CallerContext(7L, PlanTier.FREE));
-        given(linkService.updateOwnedLink(eq(7L), eq(1L), any()))
+        given(linkService.updateOwnedLink(
+                eq(new CallerContext(7L, PlanTier.FREE)), eq(1L), any()))
                 .willThrow(new OptimisticLockingFailureException("stale version"));
 
         mockMvc.perform(patch(LINKS + "/1")

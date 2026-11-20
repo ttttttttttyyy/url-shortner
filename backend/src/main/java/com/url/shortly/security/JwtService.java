@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 
 import com.url.shortly.Entities.AppUser;
 import com.url.shortly.config.AppProperties;
-import com.url.shortly.enums.PlanTier;
+import com.url.shortly.service.PlanTierResolver;
 
 /**
  * Issues short-lived HMAC-signed access tokens.
@@ -32,11 +32,14 @@ public class JwtService {
     private final JwtEncoder encoder;
     private final AppProperties properties;
     private final Clock clock;
+    private final PlanTierResolver tierResolver;
 
-    public JwtService(JwtEncoder encoder, AppProperties properties, Clock clock) {
+    public JwtService(JwtEncoder encoder, AppProperties properties, Clock clock,
+                      PlanTierResolver tierResolver) {
         this.encoder = encoder;
         this.properties = properties;
         this.clock = clock;
+        this.tierResolver = tierResolver;
     }
 
     public IssuedAccessToken issue(AppUser user) {
@@ -59,9 +62,9 @@ public class JwtService {
                 .id(UUID.randomUUID().toString())
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole().name())
-                // FR-15 will resolve the effective subscription; until then
-                // every registered account is on the free tier.
-                .claim("tier", PlanTier.FREE.name())
+                // Resolved through a seam so FR-15 can plug in subscriptions
+                // without touching token issuance or entitlement checks.
+                .claim("tier", tierResolver.tierFor(user.getId()).name())
                 .build();
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();

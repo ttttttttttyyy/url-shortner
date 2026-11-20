@@ -161,6 +161,27 @@ class LinkManagementIntegrationTest {
     }
 
     @Test
+    @DisplayName("A free account cannot claim a custom alias on create or update")
+    void freeAccountCannotClaimAlias() throws Exception {
+        Registered owner = register("manage-free-alias@example.com");
+        String bearer = "Bearer " + owner.token();
+
+        mockMvc.perform(post(LINKS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://example.com/x\",\"alias\":\"free-alias\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.title").value("Custom aliases require the paid plan"));
+
+        Link link = seed("freeown1", owner.id(), null);
+        mockMvc.perform(patch(LINKS + "/" + link.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"free-alias\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("A non-owner cannot update or delete someone else's link")
     void nonOwnerCannotModifyLink() throws Exception {
         Registered owner = register("manage-protected@example.com");
@@ -272,7 +293,8 @@ class LinkManagementIntegrationTest {
         mockMvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alias\":\"\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.title").value("Invalid link update"));
         mockMvc.perform(patch(url).header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"clearExpiry\":true,\"expiresAt\":\""

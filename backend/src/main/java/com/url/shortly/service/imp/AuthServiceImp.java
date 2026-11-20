@@ -32,6 +32,7 @@ import com.url.shortly.security.JwtService;
 import com.url.shortly.security.TokenHasher;
 import com.url.shortly.service.AuthResult;
 import com.url.shortly.service.AuthService;
+import com.url.shortly.service.PlanTierResolver;
 import com.url.shortly.service.exeptions.AccountUnavailableException;
 import com.url.shortly.service.exeptions.EmailAlreadyRegisteredException;
 import com.url.shortly.service.exeptions.InvalidCredentialsException;
@@ -64,6 +65,7 @@ public class AuthServiceImp implements AuthService {
     private final AppProperties properties;
     private final Clock clock;
     private final AuthRateLimitGuard rateLimitGuard;
+    private final PlanTierResolver tierResolver;
     private final SecureRandom secureRandom = new SecureRandom();
     private final String dummyPasswordHash;
 
@@ -73,7 +75,8 @@ public class AuthServiceImp implements AuthService {
                           JwtService jwtService,
                           AppProperties properties,
                           Clock clock,
-                          AuthRateLimitGuard rateLimitGuard) {
+                          AuthRateLimitGuard rateLimitGuard,
+                          PlanTierResolver tierResolver) {
         this.users = users;
         this.sessions = sessions;
         this.passwordEncoder = passwordEncoder;
@@ -81,6 +84,7 @@ public class AuthServiceImp implements AuthService {
         this.properties = properties;
         this.clock = clock;
         this.rateLimitGuard = rateLimitGuard;
+        this.tierResolver = tierResolver;
         // Equalizes the expensive verification path for unknown emails so the
         // login endpoint does not leak account existence through timing.
         this.dummyPasswordHash = passwordEncoder.encode("shortly-invalid-password-placeholder");
@@ -208,7 +212,7 @@ public class AuthServiceImp implements AuthService {
         AppUser user = users.findById(userId)
                 .filter(AppUser::isActive)
                 .orElseThrow(AccountUnavailableException::new);
-        return UserProfile.from(user);
+        return UserProfile.from(user, tierResolver.tierFor(userId));
     }
 
     private AuthResult createSession(AppUser user, ClientMetadata metadata, String familyId) {
@@ -230,7 +234,7 @@ public class AuthServiceImp implements AuthService {
                 accessToken.token(),
                 rawRefreshToken,
                 accessToken.expiresInSeconds(),
-                UserProfile.from(user));
+                UserProfile.from(user, tierResolver.tierFor(user.getId())));
     }
 
     private String newRefreshToken() {

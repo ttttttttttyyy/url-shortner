@@ -188,14 +188,21 @@ public class LinkServiceImp implements LinkService{
      * by the owner.
      */
     @Override
-    @Transactional
-    public Link updateOwnedLink(Long ownerId, Long linkId, UpdateLinkRequest request) {
-        Link link = getOwnedLink(ownerId, linkId);
+    public Link updateOwnedLink(CallerContext caller, Long linkId, UpdateLinkRequest request) {
+        Link link = getOwnedLink(caller.userId(), linkId);
 
         // Validate everything before mutating the entity so a failed update
         // cannot leave a half-applied change in the persistence context.
-        if (request.alias() != null) {
-            throw new AliasNotAllowedException("Custom aliases require the paid plan");
+        String alias = request.alias();
+        boolean aliasChange = alias != null && !alias.isBlank();
+        if (alias != null && !aliasChange) {
+            throw new InvalidLinkUpdateException("alias must not be blank");
+        }
+        if (aliasChange) {
+            if (caller.tier() != PlanTier.PAID) {
+                throw new AliasNotAllowedException("Custom aliases require the paid plan");
+            }
+            generator.validateCustomAlias(alias, caller.tier());
         }
         if (request.password() != null) {
             throw new PasswordNotAllowedException("Password protection is not available yet");
@@ -218,10 +225,15 @@ public class LinkServiceImp implements LinkService{
                 ? null
                 : validateRequestedExpiry(request.expiresAt());
 
-        if (destination == null && expiresAt == null && !clearExpiry && request.active() == null) {
+        if (destination == null && expiresAt == null && !clearExpiry
+                && request.active() == null && !aliasChange) {
             throw new InvalidLinkUpdateException();
         }
 
+        if (aliasChange) {
+            link.setShortCode(alias);
+            link.setCustomAlias(true);
+        }
         if (destination != null) {
             link.setUrl(destination);
         }
@@ -233,7 +245,15 @@ public class LinkServiceImp implements LinkService{
         if (request.active() != null) {
             link.setStatus(request.active() ? LinkStatus.ACTIVE : LinkStatus.DISABLED);
         }
-        return linkRepository.saveAndFlush(link);
+
+        try {
+            return linkRepository.saveAndFlush(link);
+        } catch (DataIntegrityViolationException ex) {
+            if (aliasChange && linkRepository.existsByShortCode(alias)) {
+                throw new ShortCodeConflictException("Short code already taken: " + alias, ex);
+            }
+            throw ex;
+        }
     }
 
     /**
