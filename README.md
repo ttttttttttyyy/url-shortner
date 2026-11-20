@@ -151,8 +151,9 @@ and the deferred email flows are documented in
 `docs/fr-06-dashboard.md`, owned-link updates/deletion in
 `docs/fr-07-link-management.md`, paid custom aliases in
 `docs/fr-08-custom-aliases.md`, basic analytics in
-`docs/fr-09-analytics.md`, and paid breakdowns in
-`docs/fr-10-advanced-analytics.md`.
+`docs/fr-09-analytics.md`, paid breakdowns in
+`docs/fr-10-advanced-analytics.md`, and link expiration in
+`docs/fr-12-expiration.md`.
 
 ## Project Scope
 

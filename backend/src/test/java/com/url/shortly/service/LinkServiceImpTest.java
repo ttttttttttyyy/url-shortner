@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -176,9 +177,29 @@ class LinkServiceImpTest {
 
         assertThatThrownBy(() -> service.createLink(
                 new CreateLinkRequest("https://example.com/x", null, null, farFuture),
-                CallerContext.guest()))
+                new CallerContext(1L, PlanTier.FREE)))
                 .isInstanceOf(InvalidExpiryException.class)
                 .hasMessageContaining("3650");
+    }
+
+    @Test
+    @DisplayName("guest expiry is capped at the configured retention window")
+    void guestExpiryIsCapped() {
+        Instant withinWindow = FIXED_NOW.plus(Duration.ofDays(30));
+        Instant beyondWindow = FIXED_NOW.plus(Duration.ofDays(31));
+        when(generator.generateAndPersist(eq(PlanTier.GUEST), any()))
+                .thenAnswer(inv -> persistCaptured(inv.getArgument(1), "guestx1"));
+
+        Link created = service.createLink(
+                new CreateLinkRequest("https://example.com/x", null, null, withinWindow),
+                CallerContext.guest());
+        assertThat(created.getExpiresAt()).isEqualTo(withinWindow);
+
+        assertThatThrownBy(() -> service.createLink(
+                new CreateLinkRequest("https://example.com/x", null, null, beyondWindow),
+                CallerContext.guest()))
+                .isInstanceOf(InvalidExpiryException.class)
+                .hasMessageContaining("Guest links must be within 30 days");
     }
 
     @Test
@@ -253,7 +274,16 @@ class LinkServiceImpTest {
     @DisplayName("one second after expiresAt the link is EXPIRED")
     void linkIsExpiredAfterExpiry() {
         Link link = resolvedLink("expired1");
-        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setExpiresAt(FIXED_NOW.minusSeconds(1));
+
+        assertThat(outcomeFor(link)).isEqualTo(Outcome.EXPIRED);
+    }
+
+    @Test
+    @DisplayName("the exact expiry instant is already expired")
+    void expiryBoundaryIsExpired() {
+        Link link = resolvedLink("boundary");
+        link.setExpiresAt(FIXED_NOW);
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.EXPIRED);
     }
@@ -262,7 +292,7 @@ class LinkServiceImpTest {
     @DisplayName("one second before expiresAt the link is still ACTIVE")
     void linkIsActiveBeforeExpiry() {
         Link link = resolvedLink("active2");
-        link.setExpiresAt(Instant.now().plusSeconds(1));
+        link.setExpiresAt(FIXED_NOW.plusSeconds(1));
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.ACTIVE);
     }
@@ -285,7 +315,7 @@ class LinkServiceImpTest {
     @DisplayName("a soft-deleted ACTIVE row resolves to DELETED")
     void deletedAtWinsOverActiveStatus() {
         Link link = resolvedLink("deleted2");
-        link.setDeletedAt(Instant.now());
+        link.setDeletedAt(FIXED_NOW);
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.DELETED);
     }
@@ -303,9 +333,9 @@ class LinkServiceImpTest {
     @DisplayName("deleted beats blocked and expiry")
     void deletedHasHighestPrecedence() {
         Link link = resolvedLink("deleted3");
-        link.setDeletedAt(Instant.now());
+        link.setDeletedAt(FIXED_NOW);
         link.setStatus(LinkStatus.BLOCKED);
-        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setExpiresAt(FIXED_NOW.minusSeconds(1));
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.DELETED);
     }
@@ -315,7 +345,7 @@ class LinkServiceImpTest {
     void blockedBeatsLaterStates() {
         Link link = resolvedLink("blocked2");
         link.setStatus(LinkStatus.BLOCKED);
-        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setExpiresAt(FIXED_NOW.minusSeconds(1));
         link.setPasswordHash("{bcrypt}hash");
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.BLOCKED);
@@ -325,7 +355,7 @@ class LinkServiceImpTest {
     @DisplayName("expiry beats password so an expired link never asks for a secret")
     void expiryBeatsPassword() {
         Link link = resolvedLink("expired2");
-        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setExpiresAt(FIXED_NOW.minusSeconds(1));
         link.setPasswordHash("{bcrypt}hash");
 
         assertThat(outcomeFor(link)).isEqualTo(Outcome.EXPIRED);

@@ -135,17 +135,17 @@ A fixed window permits a burst at the boundary (for example, 10 requests in a
 few milliseconds around the minute mark). The token bucket smooths refill and
 provides a meaningful `Retry-After`, which FR-04 requires.
 
-### Guest retention is intentionally unused
+### Guest retention is enforced at creation (FR-12)
 
-`app.link.guest-retention-days: 30` remains inert in FR-04. Guest links are
-non-expiring in this feature. Expiration enforcement is an FR-12 concern and
-an owner decision; if approved, it will be implemented as an upper bound on
-guest `expiresAt`, not hidden inside creation.
+`app.link.guest-retention-days: 30` was inert in FR-04. FR-12 now applies it as
+an upper bound on a guest's requested `expiresAt`, as the handoff proposed: a
+guest link with no requested expiry still never expires by default. Registered
+accounts use the larger `app.link.max-expiration-days` window instead.
 
 ## Out of scope
 
 - **FR-05:** authentication and per-user identity.
-- **FR-12:** expiration and guest retention enforcement.
+- **FR-12:** implemented — expiry configuration and the guest retention cap.
 - **FR-13:** password-protected links.
 - **FR-14:** ad interstitial.
 - **FR-16:** CAPTCHA, denylist, moderation and reporting workflow.

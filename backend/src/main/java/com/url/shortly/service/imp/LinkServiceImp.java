@@ -133,7 +133,7 @@ public class LinkServiceImp implements LinkService{
         if (link.getStatus() == LinkStatus.DISABLED) {
             return new LinkResolution(link, LinkResolution.Outcome.DISABLED);
         }
-        if (link.isExpired()) {
+        if (link.isExpired(clock.instant())) {
             return new LinkResolution(link, LinkResolution.Outcome.EXPIRED);
         }
         if (link.getPasswordHash() != null) {
@@ -158,7 +158,7 @@ public class LinkServiceImp implements LinkService{
         }
 
         String destination = urlValidator.validateAndNormalize(request.url());
-        Instant expiresAt = validateExpiry(request.expiresAt());
+        Instant expiresAt = validateExpiry(request.expiresAt(), caller.tier());
 
         String alias = request.alias();
         if (alias != null) {
@@ -234,7 +234,7 @@ public class LinkServiceImp implements LinkService{
                 : urlValidator.validateAndNormalize(request.url());
         Instant expiresAt = request.expiresAt() == null
                 ? null
-                : validateRequestedExpiry(request.expiresAt());
+                : validateRequestedExpiry(request.expiresAt(), caller.tier());
 
         if (destination == null && expiresAt == null && !clearExpiry
                 && request.active() == null && !aliasChange) {
@@ -294,37 +294,54 @@ public class LinkServiceImp implements LinkService{
      * Apply the configured expiration rules to a requested expiry.
      *
      * <p>{@code null} falls back to {@code app.link.default-expiration-days}
-     * (0 = no default expiry, so the link never expires). A non-null value
-     * must be in the future and within {@code app.link.max-expiration-days}.
+     * (0 = no default expiry, so the link never expires). A non-null value must
+     * be in the future and within the tier window: the configured maximum for
+     * registered accounts, or {@code app.link.guest-retention-days} for guests.
      */
-    private Instant validateExpiry(Instant requested) {
+    private Instant validateExpiry(Instant requested, PlanTier tier) {
         if (requested == null) {
             int defaultDays = properties.link().defaultExpirationDays();
-            return defaultDays <= 0
-                    ? null
-                    : clock.instant().plus(Duration.ofDays(defaultDays));
+            if (defaultDays <= 0) {
+                return null;
+            }
+            // A configured default must still respect the guest retention cap.
+            return validateRequestedExpiry(clock.instant().plus(Duration.ofDays(defaultDays)), tier);
         }
-        return validateRequestedExpiry(requested);
+        return validateRequestedExpiry(requested, tier);
     }
 
     /**
      * Validate an explicitly supplied expiry without applying the creation
      * default — {@code null} in a PATCH means "leave unchanged".
+     *
+     * <p>Registered accounts may use the full configured window. Guests are
+     * capped at {@code app.link.guest-retention-days}, applying the FR-04
+     * handoff at creation time instead of silently deleting links later.
      */
-    private Instant validateRequestedExpiry(Instant requested) {
-        AppProperties.Link config = properties.link();
+    private Instant validateRequestedExpiry(Instant requested, PlanTier tier) {
         Instant now = clock.instant();
 
         if (requested.isBefore(now)) {
             throw new InvalidExpiryException("expiresAt must not be in the past");
         }
 
-        Instant maxExpiry = now.plus(Duration.ofDays(config.maxExpirationDays()));
-        if (requested.isAfter(maxExpiry)) {
+        int maxDays = maxExpiryDays(tier);
+        if (requested.isAfter(now.plus(Duration.ofDays(maxDays)))) {
+            String scope = tier == PlanTier.GUEST ? "Guest links" : "expiresAt";
             throw new InvalidExpiryException(
-                    "expiresAt must be within " + config.maxExpirationDays() + " days");
+                    scope + " must be within " + maxDays + " days");
         }
         return requested;
+    }
+
+    private int maxExpiryDays(PlanTier tier) {
+        AppProperties.Link config = properties.link();
+        if (tier != PlanTier.GUEST) {
+            return config.maxExpirationDays();
+        }
+        int guestDays = config.guestRetentionDays();
+        return guestDays > 0 ? Math.min(guestDays, config.maxExpirationDays())
+                : config.maxExpirationDays();
     }
     private Link insert(String code, String destination, Long ownerId,
                         boolean customAlias, Instant expiresAt) {

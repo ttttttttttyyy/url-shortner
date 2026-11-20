@@ -81,12 +81,14 @@ public class Link {
     }
 
     /**
-     * FR-03: a link is expired as soon as {@code expiresAt} is reached.
+     * FR-03/FR-12: a link is expired as soon as {@code expiresAt} is reached.
      *
-     * <p>{@code !isAfter(now)} (rather than {@code isBefore(now)}) makes the
-     * boundary itself expired, so a link cannot redirect for one extra instant.
+     * <p>The caller supplies {@code now} from the application clock so every
+     * layer (resolution, dashboard, analytics) agrees on the boundary.
+     * {@code !isAfter(now)} makes the boundary itself expired, so a link cannot
+     * redirect for one extra instant.
      */
-    public boolean isExpired() {
-        return expiresAt != null && !expiresAt.isAfter(Instant.now());
+    public boolean isExpired(Instant now) {
+        return expiresAt != null && !expiresAt.isAfter(now);
     }
 }
