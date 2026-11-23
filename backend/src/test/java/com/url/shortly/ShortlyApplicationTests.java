@@ -19,7 +19,7 @@ class ShortlyApplicationTests {
 	@Test
 	void contextLoads() {
 		assertThat(appProperties).isNotNull();
-		assertThat(appProperties.shortCode().length()).isEqualTo(7);
+		assertThat(appProperties.shortCode().guestMinLength()).isEqualTo(6);
 		assertThat(appProperties.security().jwt().secret()).isNotBlank();
 	}
 

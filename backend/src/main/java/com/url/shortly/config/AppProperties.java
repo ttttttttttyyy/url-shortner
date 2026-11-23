@@ -20,11 +20,19 @@ public record AppProperties(
 		Analytics analytics) {
 
 	public record ShortCode(
-			@DefaultValue("7") int length,
+			@DefaultValue("6") int guestMinLength,
+			@DefaultValue("5") int freeMinLength,
+			@DefaultValue("4") int paidMinLength,
 			@DefaultValue("32") int maxLength,
 			@DefaultValue("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") String alphabet,
 			@DefaultValue("10") int maxGenerationAttempts,
 			List<String> reservedAliases) {
+
+		public ShortCode {
+			if (reservedAliases == null) {
+				reservedAliases = List.of();
+			}
+		}
 	}
 
 	public record Link(
@@ -42,14 +50,16 @@ public record AppProperties(
 	public record Security(
 			Jwt jwt,
 			Cors cors,
-			RateLimit rateLimit) {
+			RateLimit rateLimit,
+			Auth auth) {
 
 		public record Jwt(
 				@DefaultValue("shortly") String issuer,
 				@DefaultValue("shortly-web") String audience,
 				String secret,
 				@DefaultValue("15m") Duration accessTokenTtl,
-				@DefaultValue("7d") Duration refreshTokenTtl) {
+				@DefaultValue("7d") Duration refreshTokenTtl,
+				@DefaultValue("30m") Duration linkAccessTokenTtl) {
 		}
 
 		public record Cors(
@@ -61,13 +71,30 @@ public record AppProperties(
 				@DefaultValue("3600") long maxAge) {
 		}
 
+		/**
+		 * Refresh-session and password-hashing settings. The refresh cookie is
+		 * host-only and path-scoped to the authentication routes; it must be
+		 * {@code Secure} everywhere except plain-HTTP local development.
+		 */
+		public record Auth(
+				@DefaultValue("SHORTLY_REFRESH") String refreshCookieName,
+				@DefaultValue("/api/v1/auth") String refreshCookiePath,
+				@DefaultValue("true") boolean refreshCookieSecure,
+				@DefaultValue("Lax") String refreshCookieSameSite,
+				@DefaultValue("10") int bcryptStrength) {
+		}
+
 		public record RateLimit(
 				@DefaultValue("true") boolean enabled,
 				@DefaultValue("1m") Duration window,
 				@DefaultValue("5") int guestLinkCreation,
+				@DefaultValue("50") int guestLinkCreationDaily,
+				@DefaultValue("0") int globalGuestLinkCreation,
 				@DefaultValue("30") int userLinkCreation,
 				@DefaultValue("10") int loginAttempts,
-				@DefaultValue("10") int passwordVerification) {
+				@DefaultValue("10") int passwordVerification,
+				@DefaultValue("60") int loginIpAttempts,
+				@DefaultValue("5") int registrationAttempts) {
 		}
 	}
 
@@ -88,6 +115,11 @@ public record AppProperties(
 			Plan free,
 			Plan paid) {
 
+		/**
+		 * Descriptive capabilities of a plan. FR-08/FR-13 enforce entitlement
+		 * from the signed tier claim; FR-15 will connect these flags to the
+		 * resolved subscription instead of creating a second gate.
+		 */
 		public record Plan(
 				int maxLinks,
 				boolean customAliases,

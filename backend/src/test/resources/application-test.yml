@@ -22,5 +22,9 @@ app:
   security:
     jwt:
       secret: test-only-shortly-jwt-secret-0123456789abcdef
+    auth:
+      refresh-cookie-secure: false
+      # Tests exercise the hashing contract, not the production cost factor.
+      bcrypt-strength: 4
   ads:
     enabled: false

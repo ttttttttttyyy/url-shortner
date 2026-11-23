@@ -46,7 +46,9 @@ spring:
 server:
   port: ${SERVER_PORT:10004}
   shutdown: graceful
-  forward-headers-strategy: framework
+  # Use the container's trusted-proxy support (Tomcat RemoteIpValve) rather
+  # than ForwardedHeaderFilter, which trusts forwarded headers from any peer.
+  forward-headers-strategy: native
   max-http-request-header-size: 16KB
   compression:
     enabled: true
@@ -61,6 +63,13 @@ server:
         same-site: lax
         secure: true
   tomcat:
+    remoteip:
+      # Only rewrite the client address when the direct peer is a trusted
+      # proxy. Set TRUSTED_PROXIES for Docker/bridge networks or a non-local
+      # reverse proxy; never leave this open on a directly exposed port.
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: ${TRUSTED_PROXIES:127\.0\.0\.1|::1}
     threads:
       max: 200
       min-spare: 10
@@ -117,10 +126,18 @@ app:
   base-url: ${APP_BASE_URL:http://localhost:10004}
 
   short-code:
-    length: ${SHORT_CODE_LENGTH:7}
+    # Minimum generated-code length per tier. Paid users can also claim
+    # shorter codes as custom aliases (FR-08 / FR-15).
+    guest-min-length: ${SHORT_CODE_GUEST_MIN_LENGTH:6}
+    free-min-length: ${SHORT_CODE_FREE_MIN_LENGTH:5}
+    paid-min-length: ${SHORT_CODE_PAID_MIN_LENGTH:4}
     max-length: ${SHORT_CODE_MAX_LENGTH:32}
     alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     max-generation-attempts: ${SHORT_CODE_MAX_ATTEMPTS:10}
+    # Entries containing dots (favicon.ico, robots.txt, sitemap.xml) are public
+    # routes shielded by the short-code path guard; the alias format forbids
+    # dots, so they can never be claimed as aliases. They are listed here so
+    # generated candidates are never compared against those route names.
     reserved-aliases:
       - api
       - admin
@@ -157,6 +174,15 @@ app:
       audience: ${JWT_AUDIENCE:shortly-web}
       access-token-ttl: ${JWT_ACCESS_TTL:15m}
       refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+      # Scoped proof that a visitor passed a link password (FR-13).
+      link-access-token-ttl: ${LINK_ACCESS_TTL:30m}
+    auth:
+      refresh-cookie-name: ${AUTH_REFRESH_COOKIE_NAME:SHORTLY_REFRESH}
+      refresh-cookie-path: ${AUTH_REFRESH_COOKIE_PATH:/api/v1/auth}
+      # Must stay true in production. The dev profile disables it for plain HTTP.
+      refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+      refresh-cookie-same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Lax}
+      bcrypt-strength: ${BCRYPT_STRENGTH:10}
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
       allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
@@ -168,8 +194,18 @@ app:
       enabled: ${RATE_LIMIT_ENABLED:true}
       window: ${RATE_LIMIT_WINDOW:1m}
       guest-link-creation: ${RATE_LIMIT_GUEST_CREATE:5}
+      # Sustained 24h token-bucket rate; 0 disables. 5/min alone still allows
+      # ~7,200/day, which is too much for an unaccountable guest.
+      guest-link-creation-daily: ${RATE_LIMIT_GUEST_CREATE_DAILY:50}
+      # Per-instance safety valve; 0 disables. Move to Redis before scaling out.
+      global-guest-link-creation: ${RATE_LIMIT_GLOBAL_GUEST_CREATE:0}
       user-link-creation: ${RATE_LIMIT_USER_CREATE:30}
+      # Per-account login attempts (keyed by a hash of the normalized email).
       login-attempts: ${RATE_LIMIT_LOGIN:10}
+      # Per-address login attempts; higher because NAT shares one address.
+      login-ip-attempts: ${RATE_LIMIT_LOGIN_IP:60}
+      # Registration attempts per address.
+      registration-attempts: ${RATE_LIMIT_REGISTER:5}
       password-verification: ${RATE_LIMIT_PASSWORD_VERIFY:10}
 
   ads:
@@ -240,6 +276,8 @@ app:
   security:
     jwt:
       secret: ${JWT_SECRET:dev-only-shortly-jwt-secret-change-me-0123456789abcdef}
+    auth:
+      refresh-cookie-secure: false
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:4200}
   ads:

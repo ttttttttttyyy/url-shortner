@@ -80,12 +80,15 @@ public class Link {
         updatedAt = Instant.now();
     }
 
-    public boolean isExpired() {
-        return expiresAt != null && expiresAt.isBefore(Instant.now());
-    }
-
-    /** FR-03: only ACTIVE, non-expired, non-deleted links may redirect. */
-    public boolean isResolvable() {
-        return status == LinkStatus.ACTIVE && deletedAt == null && !isExpired();
+    /**
+     * FR-03/FR-12: a link is expired as soon as {@code expiresAt} is reached.
+     *
+     * <p>The caller supplies {@code now} from the application clock so every
+     * layer (resolution, dashboard, analytics) agrees on the boundary.
+     * {@code !isAfter(now)} makes the boundary itself expired, so a link cannot
+     * redirect for one extra instant.
+     */
+    public boolean isExpired(Instant now) {
+        return expiresAt != null && !expiresAt.isAfter(now);
     }
 }

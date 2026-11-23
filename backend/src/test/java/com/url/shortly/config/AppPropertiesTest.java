@@ -11,9 +11,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Verifies the SoW baseline configuration is bound correctly: 7-character
- * short codes, a 32-character maximum, the 62-character alphabet, reserved
- * aliases and the default plan limits.
+ * Verifies the SoW baseline configuration is bound correctly: tiered short
+ * code lengths (guest 6, free 5, paid 4), a 32-character maximum, the
+ * 62-character alphabet, reserved aliases and the default plan limits.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -27,7 +27,9 @@ class AppPropertiesTest {
     void shortCodeDefaults() {
         AppProperties.ShortCode shortCode = appProperties.shortCode();
 
-        assertThat(shortCode.length()).isEqualTo(7);
+        assertThat(shortCode.guestMinLength()).isEqualTo(6);
+        assertThat(shortCode.freeMinLength()).isEqualTo(5);
+        assertThat(shortCode.paidMinLength()).isEqualTo(4);
         assertThat(shortCode.maxLength()).isEqualTo(32);
         assertThat(shortCode.alphabet()).hasSize(62);
         assertThat(shortCode.maxGenerationAttempts()).isEqualTo(10);
@@ -71,5 +73,42 @@ class AppPropertiesTest {
         assertThat(appProperties.analytics().retentionDays()).isEqualTo(365);
         assertThat(appProperties.analytics().geoGranularity()).isEqualTo("country");
         assertThat(appProperties.analytics().anonymizeIp()).isTrue();
+    }
+
+    @Test
+    @DisplayName("FR-04 rate limits default to burst plus a rolling daily rate")
+    void rateLimitDefaults() {
+        AppProperties.Security.RateLimit rateLimit = appProperties.security().rateLimit();
+
+        assertThat(rateLimit.enabled()).isTrue();
+        assertThat(rateLimit.window()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(rateLimit.guestLinkCreation()).isEqualTo(5);
+        assertThat(rateLimit.guestLinkCreationDaily()).isEqualTo(50);
+        assertThat(rateLimit.globalGuestLinkCreation()).isZero();
+        assertThat(rateLimit.userLinkCreation()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("FR-05 authentication rate limits are configured")
+    void authRateLimitDefaults() {
+        AppProperties.Security.RateLimit rateLimit = appProperties.security().rateLimit();
+
+        assertThat(rateLimit.loginIpAttempts()).isEqualTo(60);
+        assertThat(rateLimit.loginAttempts()).isEqualTo(10);
+        assertThat(rateLimit.registrationAttempts()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("Refresh cookies are host-only, path-scoped and SameSite=Lax")
+    void authCookieDefaults() {
+        AppProperties.Security.Auth auth = appProperties.security().auth();
+
+        assertThat(auth.refreshCookieName()).isEqualTo("SHORTLY_REFRESH");
+        assertThat(auth.refreshCookiePath()).isEqualTo("/api/v1/auth");
+        assertThat(auth.refreshCookieSameSite()).isEqualTo("Lax");
+        // The test profile disables Secure for plain HTTP; production defaults
+        // to true (see application.yml).
+        assertThat(auth.refreshCookieSecure()).isFalse();
+        assertThat(auth.bcryptStrength()).isEqualTo(4);
     }
 }

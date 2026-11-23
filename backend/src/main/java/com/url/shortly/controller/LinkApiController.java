@@ -1,7 +1,19 @@
 package com.url.shortly.controller;
 
+import java.net.URI;
+import java.time.Clock;
+import java.time.Duration;
+
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -9,64 +21,287 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.url.shortly.DTO.AdvancedAnalyticsResponse;
+import com.url.shortly.DTO.AnalyticsResponse;
+import com.url.shortly.DTO.CallerContext;
+import com.url.shortly.DTO.CallerResolver;
 import com.url.shortly.DTO.CreateLinkRequest;
+import com.url.shortly.DTO.CreateLinkResponse;
+import com.url.shortly.DTO.LinkDashboardResponse;
+import com.url.shortly.DTO.LinkDetailResponse;
+import com.url.shortly.DTO.PasswordVerificationRequest;
+import com.url.shortly.DTO.PasswordVerificationResponse;
 import com.url.shortly.DTO.UpdateLinkRequest;
+import com.url.shortly.Entities.Link;
+import com.url.shortly.Entities.LinkStatus;
+import com.url.shortly.config.AppProperties;
+import com.url.shortly.enums.PlanTier;
+import com.url.shortly.ratelimit.RateLimitScope;
+import com.url.shortly.ratelimit.RateLimited;
+import com.url.shortly.service.AdvancedAnalyticsService;
+import com.url.shortly.service.ClickAnalyticsService;
+import com.url.shortly.service.LinkPasswordService;
+import com.url.shortly.service.LinkService;
+import com.url.shortly.service.OwnedLinks;
+import com.url.shortly.service.ShortUrlBuilder;
+import com.url.shortly.service.exeptions.AccountUnavailableException;
+
+import jakarta.validation.Valid;
 
 /**
- * Link management API. Every endpoint is a placeholder until the persistence
- * and authorization layers are wired in.
+ * Link management API. Creation, dashboard, details, updates, deletion and
+ * basic analytics are implemented; only the QR placeholder remains.
  */
 @RestController
 @RequestMapping("/api/v1/links")
 public class LinkApiController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_ANALYTICS_DAYS = 365;
+
+    final LinkService linkService;
+    final CallerResolver callerResolver;
+    final ShortUrlBuilder shortUrlBuilder;
+    final ClickAnalyticsService clickAnalytics;
+    final AdvancedAnalyticsService advancedAnalytics;
+    final LinkPasswordService linkPasswords;
+    final AppProperties properties;
+    final Clock clock;
+
+    LinkApiController(LinkService linkService, CallerResolver callerResolver,
+                      ShortUrlBuilder shortUrlBuilder, ClickAnalyticsService clickAnalytics,
+                      AdvancedAnalyticsService advancedAnalytics, LinkPasswordService linkPasswords,
+                      AppProperties properties, Clock clock) {
+
+        this.linkService = linkService;
+        this.callerResolver = callerResolver;
+        this.shortUrlBuilder = shortUrlBuilder;
+        this.clickAnalytics = clickAnalytics;
+        this.advancedAnalytics = advancedAnalytics;
+        this.linkPasswords = linkPasswords;
+        this.properties = properties;
+        this.clock = clock;
+    }
+
     /**
      * Create a short link; guest or authenticated access according to rate and
      * plan rules.
      */
+    @Operation(summary = "Create a short link",
+            description = "Guest or authenticated access according to rate and plan rules. "
+                    + "The returned Location and shortUrl point at the short URL resource.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Link created"),
+            @ApiResponse(responseCode = "400", description = "Malformed or invalid body"),
+            @ApiResponse(responseCode = "403", description = "Entitlement required (alias or password)"),
+            @ApiResponse(responseCode = "409", description = "Requested alias already taken"),
+            @ApiResponse(responseCode = "422", description = "Invalid destination URL or expiration"),
+            @ApiResponse(responseCode = "429", description = "Guest or user creation rate limit exceeded"),
+            @ApiResponse(responseCode = "503", description = "Short-code space exhausted")
+    })
+    @RateLimited(RateLimitScope.LINK_CREATION)
     @PostMapping
-    public ResponseEntity<Void> createLink(@RequestBody CreateLinkRequest request) {
-        // TODO: resolve guest/authenticated caller, enforce rate + plan limits,
-        // generate a short code and persist the link.
-        return notImplemented();
+    public ResponseEntity<CreateLinkResponse> createLink(
+            @Valid @RequestBody CreateLinkRequest request) {
+
+        Link link = linkService.createLink(request, callerResolver.current());
+        String shortUrl = shortUrlBuilder.build(link.getShortCode());
+
+        return ResponseEntity.created(URI.create(shortUrl))
+                .body(CreateLinkResponse.from(link, shortUrl));
     }
 
-    /** List the authenticated user's own links. */
+    /**
+     * Dashboard data: the caller's own links plus an account-wide usage
+     * summary. Ownership is taken from the authenticated principal; no client
+     * supplied id can widen the result.
+     */
+    @Operation(summary = "List the authenticated user's links",
+            description = "Newest first. The usage summary covers all non-deleted links "
+                    + "owned by the caller, independently of page and status filter.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Dashboard page"),
+            @ApiResponse(responseCode = "400", description = "Invalid page, size or status filter"),
+            @ApiResponse(responseCode = "401", description = "Authentication required")
+    })
     @GetMapping
-    public ResponseEntity<Void> getLinks() {
-        // TODO: return only the authenticated user's links.
-        return notImplemented();
+    public ResponseEntity<LinkDashboardResponse> getLinks(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "status", required = false) LinkStatus status) {
+
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "page must be >= 0 and size must be between 1 and " + MAX_PAGE_SIZE);
+        }
+        if (status == LinkStatus.DELETED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "deleted links are not listed; omit status to exclude them");
+        }
+
+        OwnedLinks result = linkService.listOwnedLinks(authenticatedCaller().userId(), page, size, status);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.VARY, "Authorization")
+                .body(LinkDashboardResponse.from(result, page, size, shortUrlBuilder));
     }
 
     /** Read one owned link. */
+    @Operation(summary = "Read one owned link")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Link details"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @GetMapping("/{linkId}")
-    public ResponseEntity<Void> getLink(@PathVariable Long linkId) {
-        // TODO: load the link and verify ownership.
-        return notImplemented();
+    public ResponseEntity<LinkDetailResponse> getLink(@PathVariable Long linkId) {
+        Link link = linkService.getOwnedLink(authenticatedCaller().userId(), linkId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(LinkDetailResponse.from(
+                        link, shortUrlBuilder.build(link.getShortCode()), clock.instant()));
     }
 
     /** Update permitted properties of an owned link. */
+    @Operation(summary = "Update an owned link",
+            description = "url, expiresAt, clearExpiry and active may be changed. A custom alias "
+                    + "requires the paid plan (FR-08); passwords await FR-13.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Updated link details"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Alias or password requires a paid plan"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller"),
+            @ApiResponse(responseCode = "409", description = "Concurrent modification"),
+            @ApiResponse(responseCode = "422", description = "Invalid update or destination")
+    })
     @PatchMapping("/{linkId}")
-    public ResponseEntity<Void> updateLink(@PathVariable Long linkId,
+    public ResponseEntity<LinkDetailResponse> updateLink(@PathVariable Long linkId,
             @RequestBody UpdateLinkRequest request) {
-        // TODO: verify ownership, then update only permitted properties.
-        return notImplemented();
+        Link link = linkService.updateOwnedLink(authenticatedCaller(), linkId, request);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(LinkDetailResponse.from(
+                        link, shortUrlBuilder.build(link.getShortCode()), clock.instant()));
     }
 
-    /** Delete or deactivate an owned link according to retention policy. */
+    /** Soft-delete an owned link; the short code stays reserved. */
+    @Operation(summary = "Delete an owned link",
+            description = "Reversible soft delete: the link is hidden from the dashboard and "
+                    + "redirects but its row and short code are retained.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Link deleted (idempotent)"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @DeleteMapping("/{linkId}")
     public ResponseEntity<Void> deleteLink(@PathVariable Long linkId) {
-        // TODO: verify ownership, then delete or deactivate per retention policy.
-        return notImplemented();
+        linkService.deleteOwnedLink(authenticatedCaller().userId(), linkId);
+        return ResponseEntity.noContent().build();
     }
 
-    /** Return authorized analytics for a link. */
+    /**
+     * Visitor password check for a protected link (FR-13). Public route: no
+     * account is required. Success returns a short-lived, link-scoped token
+     * that can be sent as {@code ?access=...} on the public short URL.
+     */
+    @Operation(summary = "Verify a link password",
+            description = "Returns a short-lived token bound to this link and sets an "
+                    + "HttpOnly cookie scoped to its public path.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password accepted"),
+            @ApiResponse(responseCode = "400", description = "Link has no password"),
+            @ApiResponse(responseCode = "401", description = "Incorrect password"),
+            @ApiResponse(responseCode = "404", description = "Unknown short code"),
+            @ApiResponse(responseCode = "422", description = "Link not currently verifiable"),
+            @ApiResponse(responseCode = "429", description = "Too many attempts")
+    })
+    @RateLimited(RateLimitScope.LINK_PASSWORD_VERIFY)
+    @PostMapping("/{shortCode}/verify")
+    public ResponseEntity<PasswordVerificationResponse> verifyPassword(
+            @PathVariable String shortCode,
+            @Valid @RequestBody PasswordVerificationRequest request) {
+
+        LinkPasswordService.VerificationResult result =
+                linkPasswords.verify(shortCode, request.password());
+
+        ResponseCookie cookie = ResponseCookie.from("SHORTLY_LINK_ACCESS", result.token())
+                .httpOnly(true)
+                .secure(properties.security().auth().refreshCookieSecure())
+                .path("/" + shortCode)
+                .sameSite("Lax")
+                .maxAge(Duration.ofSeconds(result.expiresInSeconds()))
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .cacheControl(CacheControl.noStore())
+                .body(new PasswordVerificationResponse(
+                        result.token(),
+                        shortUrlBuilder.build(shortCode) + "?access=" + result.token(),
+                        result.expiresInSeconds()));
+    }
+
+    /** Return basic analytics for a link the caller owns (FR-09). */
+    @Operation(summary = "Read basic analytics for an owned link",
+            description = "Click totals, estimated unique visits and daily trend. "
+                    + "Advanced breakdowns are FR-10.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Basic analytics"),
+            @ApiResponse(responseCode = "400", description = "Invalid reporting range"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
     @GetMapping("/{linkId}/analytics")
-    public ResponseEntity<Void> getAnalytics(@PathVariable Long linkId) {
-        // TODO: verify ownership and return analytics within the configured retention.
-        return notImplemented();
+    public ResponseEntity<AnalyticsResponse> getAnalytics(
+            @PathVariable Long linkId,
+            @RequestParam(name = "days", defaultValue = "7") int days) {
+
+        if (days < 1 || days > maxAnalyticsDays()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "days must be between 1 and " + maxAnalyticsDays());
+        }
+
+        // Same ownership rule as details/updates; deleted links stay hidden.
+        linkService.getOwnedLink(authenticatedCaller().userId(), linkId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(AnalyticsResponse.from(clickAnalytics.analytics(linkId, days)));
+    }
+
+    /** Paid-only breakdowns for an owned link (FR-10). */
+    @Operation(summary = "Read advanced analytics for an owned link",
+            description = "Country/device/OS/browser/referrer breakdowns. Requires the paid plan. "
+                    + "Dimensions with no recorded data are omitted.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Advanced breakdowns"),
+            @ApiResponse(responseCode = "400", description = "Invalid reporting range"),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Paid plan required"),
+            @ApiResponse(responseCode = "404", description = "Link not found or not owned by caller")
+    })
+    @GetMapping("/{linkId}/analytics/advanced")
+    public ResponseEntity<AdvancedAnalyticsResponse> getAdvancedAnalytics(
+            @PathVariable Long linkId,
+            @RequestParam(name = "days", defaultValue = "7") int days) {
+
+        if (days < 1 || days > maxAnalyticsDays()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "days must be between 1 and " + maxAnalyticsDays());
+        }
+
+        CallerContext caller = authenticatedCaller();
+        if (caller.tier() != PlanTier.PAID) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Advanced analytics requires the paid plan");
+        }
+        linkService.getOwnedLink(caller.userId(), linkId);
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(AdvancedAnalyticsResponse.from(advancedAnalytics.analytics(linkId, days)));
     }
 
     /** Generate or retrieve the QR code for an authorized link. */
@@ -74,6 +309,27 @@ public class LinkApiController {
     public ResponseEntity<Void> getQrCode(@PathVariable Long linkId) {
         // TODO: verify ownership and generate/return the QR code image.
         return notImplemented();
+    }
+
+    /**
+     * Ownership always comes from the authenticated principal. Spring Security
+     * rejects anonymous requests first; this guard also covers test/mock
+     * principals that carry no account id.
+     */
+    /** The reporting ceiling is the configured analytics retention window. */
+    private int maxAnalyticsDays() {
+        AppProperties.Analytics analytics = properties.analytics();
+        return analytics == null || analytics.retentionDays() <= 0
+                ? MAX_ANALYTICS_DAYS
+                : analytics.retentionDays();
+    }
+
+    private CallerContext authenticatedCaller() {
+        CallerContext caller = callerResolver.current();
+        if (caller == null || caller.userId() == null) {
+            throw new AccountUnavailableException();
+        }
+        return caller;
     }
 
     private ResponseEntity<Void> notImplemented() {
